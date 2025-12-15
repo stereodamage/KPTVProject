@@ -1,0 +1,46 @@
+//
+//  APIConfiguration.swift.example
+//  KinoPubTV
+//
+//  INSTRUCTIONS:
+//  1. Copy this file to APIConfiguration.swift (without .example)
+//  2. Replace the placeholder values with your actual API keys
+//  3. Never commit APIConfiguration.swift to version control
+//
+
+import Foundation
+
+enum APIConfiguration {
+    // MARK: - KinoPub API
+    
+    /// KinoPub OAuth Client ID
+    static let kinoPubClientID = "xbmc"
+    
+    /// KinoPub OAuth Client Secret
+    /// Get your own from: https://kino.pub/
+    static let kinoPubClientSecret = "YOUR_KINOPUB_CLIENT_SECRET_HERE"
+    
+    // MARK: - TMDB API
+    
+    /// The Movie Database (TMDB) API Key
+    /// Get your free API key from: https://www.themoviedb.org/settings/api
+    static let tmdbAPIKey = "YOUR_TMDB_API_KEY_HERE"
+    
+    // MARK: - Helper Methods
+    
+    /// Check if all required API keys are configured
+    static var isConfigured: Bool {
+        return !kinoPubClientSecret.isEmpty && 
+               !kinoPubClientSecret.contains("YOUR_") &&
+               !tmdbAPIKey.isEmpty && 
+               !tmdbAPIKey.contains("YOUR_")
+    }
+    
+    /// Print configuration status (for debugging)
+    static func printStatus() {
+        print("🔐 API Configuration Status:")
+        print("  - KinoPub Client ID: \(kinoPubClientID)")
+        print("  - KinoPub Client Secret: \(kinoPubClientSecret.contains("YOUR_") ? "❌ Not configured" : "✅ Configured")")
+        print("  - TMDB API Key: \(tmdbAPIKey.contains("YOUR_") ? "❌ Not configured" : "✅ Configured")")
+    }
+}
