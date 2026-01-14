@@ -15,7 +15,7 @@ struct TVView: View {
         NavigationStack {
             ScrollView {
                 LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 40), count: 6),
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 40, alignment: .top), count: 6),
                     spacing: 40
                 ) {
                     ForEach(channels) { channel in
@@ -66,35 +66,44 @@ struct TVView: View {
 
 struct TVChannelCard: View {
     let channel: TVChannel
+    @State private var imageSize: CGSize = CGSize(width: 200, height: 120)
     
     var body: some View {
         Button {
             playChannel()
         } label: {
-            ZStack(alignment: .center) {
-                // Logo/image
-                AsyncImage(url: URL.secure(string: channel.logos?.m ?? channel.logos?.s)) { image in
+            AsyncImage(url: URL.secure(string: channel.logos?.m ?? channel.logos?.s)) { phase in
+                switch phase {
+                case .success(let image):
                     image
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                } placeholder: {
-                    Rectangle()
-                        .fill(Color(white: 0.15))
-                        .overlay {
-                            Image(systemName: "tv")
-                                .font(.largeTitle)
-                                .foregroundColor(.gray)
-                        }
+                case .failure:
+                    placeholderView
+                case .empty:
+                    placeholderView
+                @unknown default:
+                    placeholderView
                 }
-                .frame(width: 200, height: 200)
-                .background(Color(white: 0.1))
             }
-            .frame(width: 200, height: 200)
+            .frame(width: 200)
+            .background(Color(white: 0.1))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.card)
         .accessibilityLabel("ТВ канал \(channel.title)")
         .accessibilityHint("Двойное нажатие для просмотра")
+    }
+    
+    private var placeholderView: some View {
+        Rectangle()
+            .fill(Color(white: 0.15))
+            .frame(width: 200, height: 120)
+            .overlay {
+                Image(systemName: "tv")
+                    .font(.largeTitle)
+                    .foregroundColor(.gray)
+            }
     }
     
     private func playChannel() {

@@ -12,6 +12,8 @@ struct DetailView: View {
     @State private var showingBookmarks = false
     @State private var selectedSeason: Season?
     @State private var selectedPerson: String?
+    @State private var backdropURL: URL?
+    @State private var shouldLoadTMDB = false
     
     var body: some View {
         ScrollView {
@@ -19,8 +21,8 @@ struct DetailView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // Hero Section
                     ZStack(alignment: .bottomLeading) {
-                        // Background
-                        AsyncImage(url: URL.secure(string: item.posters?.wide ?? item.posters?.big)) { image in
+                        // Background - use existing wide poster or load TMDB backdrop
+                        AsyncImage(url: backdropURL ?? URL.secure(string: item.posters?.wide ?? item.posters?.big)) { image in
                             image
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
@@ -28,6 +30,7 @@ struct DetailView: View {
                             Rectangle()
                                 .fill(Color.gray.opacity(0.3))
                         }
+                        .frame(maxWidth: .infinity)
                         .frame(height: 700)
                         .clipped()
                         .overlay {
@@ -36,6 +39,19 @@ struct DetailView: View {
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
+                        }
+                        .task {
+                            // Only load TMDB backdrop if:
+                            // 1. TMDB is enabled
+                            // 2. We don't already have a wide poster from KinoPub
+                            // 3. We haven't tried loading TMDB yet
+                            let useTMDB = AppSettings.shared.useTMDBMetadata
+                            let hasWidePoster = item.posters?.wide != nil
+                            
+                            if useTMDB, !hasWidePoster, !shouldLoadTMDB {
+                                shouldLoadTMDB = true
+                                backdropURL = await TMDBService.shared.getBackdropURL(for: item)
+                            }
                         }
                         
                         // Content
@@ -199,7 +215,7 @@ struct DetailView: View {
                 }
             }
         }
-        .ignoresSafeArea(edges: .top)
+        .ignoresSafeArea(edges: [.top, .horizontal])
         .navigationDestination(for: Item.self) { item in
             DetailView(itemID: item.id)
         }
@@ -213,10 +229,34 @@ struct DetailView: View {
         }
         .overlay {
             if viewModel.isLoading && viewModel.item == nil {
-                ProgressView("Загрузка...")
+                VStack(spacing: 20) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                    Text("Загрузка...")
+                        .font(.headline)
+                        .fixedSize()
+                }
+            } else if viewModel.error != nil && viewModel.item == nil {
+                VStack(spacing: 20) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 60))
+                        .foregroundColor(.yellow)
+                    Text("Не удалось загрузить")
+                        .font(.headline)
+                    Text(viewModel.error ?? "Неизвестная ошибка")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button("Повторить") {
+                        Task {
+                            await viewModel.loadItem(id: itemID)
+                        }
+                    }
+                }
+                .padding()
             }
         }
-        .alert("Ошибка", isPresented: .constant(viewModel.error != nil)) {
+        .alert("Ошибка", isPresented: .constant(viewModel.error != nil && viewModel.item != nil)) {
             Button("OK") { viewModel.error = nil }
         } message: {
             Text(viewModel.error ?? "")
@@ -238,19 +278,23 @@ struct DetailView: View {
         var playbackSeasonNumber: Int?
         var playbackVideoID: Int?
         var startTime: CMTime?
+        var availableFiles: [VideoFile]?
+        var currentQuality: String?
         
         if item.isSerial {
             // Find first unwatched episode
             if let seasons = item.seasons {
                 for season in seasons {
                     if let episode = season.episodes.first(where: { ($0.watched ?? 0) < 1 }),
-                       let file = episode.files?.first,
-                       let url = file.url.hls4 ?? file.url.hls ?? file.url.http {
+                       let file = episode.files?.preferredFile,
+                       let url = file.url.preferredURL {
                         videoURL = url
                         audios = episode.audios
                         episodeTitle = episode.displayTitle
                         playbackSeasonNumber = season.number
                         playbackVideoID = episode.id
+                        availableFiles = episode.files
+                        currentQuality = file.quality
                         if let watchTime = episode.watching?.time, watchTime > 0 {
                             startTime = CMTime(seconds: Double(watchTime), preferredTimescale: 1)
                         }
@@ -261,13 +305,15 @@ struct DetailView: View {
                 if videoURL == nil,
                    let season = seasons.first,
                    let episode = season.episodes.first,
-                   let file = episode.files?.first,
-                   let url = file.url.hls4 ?? file.url.hls ?? file.url.http {
+                   let file = episode.files?.preferredFile,
+                   let url = file.url.preferredURL {
                     videoURL = url
                     audios = episode.audios
                     episodeTitle = episode.displayTitle
                     playbackSeasonNumber = season.number
                     playbackVideoID = episode.id
+                    availableFiles = episode.files
+                    currentQuality = file.quality
                     if let watchTime = episode.watching?.time, watchTime > 0 {
                         startTime = CMTime(seconds: Double(watchTime), preferredTimescale: 1)
                     }
@@ -276,11 +322,13 @@ struct DetailView: View {
         } else {
             // Movie
             if let video = item.videos?.first,
-               let file = video.files?.first,
-               let url = file.url.hls4 ?? file.url.hls ?? file.url.http {
+               let file = video.files?.preferredFile,
+               let url = file.url.preferredURL {
                 videoURL = url
                 audios = video.audios
                 playbackVideoID = video.id
+                availableFiles = video.files
+                currentQuality = file.quality
                 if let watchTime = video.watching?.time, watchTime > 0 {
                     startTime = CMTime(seconds: Double(watchTime), preferredTimescale: 1)
                 }
@@ -304,19 +352,11 @@ struct DetailView: View {
             metadata.append(subtitleItem)
         }
         
-        var descriptionParts: [String] = []
+        // Only add plot description, let native player handle audio tracks
         if let plot = item.plot, !plot.isEmpty {
-            descriptionParts.append(plot)
-        }
-        if let audioTracks = audios, !audioTracks.isEmpty {
-            let audioLines = audioTracks.map { $0.formattedForPlayer }
-            let audioSection = "🔊 Аудио: " + audioLines.joined(separator: " | ")
-            descriptionParts.append(audioSection)
-        }
-        if !descriptionParts.isEmpty {
             let descItem = AVMutableMetadataItem()
             descItem.identifier = .commonIdentifierDescription
-            descItem.value = descriptionParts.joined(separator: "\n\n") as NSString
+            descItem.value = plot as NSString
             metadata.append(descItem)
         }
         
@@ -330,6 +370,8 @@ struct DetailView: View {
                 itemID: item.id,
                 seasonNumber: playbackSeasonNumber,
                 videoID: playbackVideoID,
+                availableFiles: availableFiles,
+                currentQuality: currentQuality,
                 from: rootVC
             )
         }
@@ -356,11 +398,12 @@ struct DetailView: View {
     private func formatDuration(_ seconds: Int) -> String {
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
+        let secs = seconds % 60
         
         if hours > 0 {
             return String(format: "%d:%02d", hours, minutes)
         } else {
-            return String(format: "%d:%02d", 0, minutes)
+            return String(format: "%d:%02d", minutes, secs)
         }
     }
 }
@@ -495,7 +538,7 @@ struct SeasonsSection: View {
                     }
                 }
                 .padding(.horizontal, 50)
-                .padding(.bottom, 30)
+                .padding(.vertical, 40)
             }
         }
         .padding(.vertical, 30)
@@ -573,7 +616,7 @@ struct VideosSection: View {
                     }
                 }
                 .padding(.horizontal, 50)
-                .padding(.bottom, 30)
+                .padding(.vertical, 40)
             }
         }
         .padding(.vertical, 30)
@@ -626,8 +669,8 @@ struct VideoCard: View {
     }
     
     private func playVideo() {
-        guard let file = video.files?.first,
-              let urlString = file.url.hls4 ?? file.url.hls ?? file.url.http,
+        guard let file = video.files?.preferredFile,
+              let urlString = file.url.preferredURL,
               let url = URL(string: urlString) else { return }
         
         // Set metadata
@@ -643,23 +686,11 @@ struct VideoCard: View {
         subtitleItem.value = video.displayTitle as NSString
         metadata.append(subtitleItem)
         
-        // Build description with audio info
-        var descriptionParts: [String] = []
-        
+        // Only add plot description, let native player handle audio tracks
         if let plot = item.plot, !plot.isEmpty {
-            descriptionParts.append(plot)
-        }
-        
-        if let audios = video.audios, !audios.isEmpty {
-            let audioLines = audios.map { $0.formattedForPlayer }
-            let audioSection = "🔊 Аудио: " + audioLines.joined(separator: " | ")
-            descriptionParts.append(audioSection)
-        }
-        
-        if !descriptionParts.isEmpty {
             let descItem = AVMutableMetadataItem()
             descItem.identifier = .commonIdentifierDescription
-            descItem.value = descriptionParts.joined(separator: "\n\n") as NSString
+            descItem.value = plot as NSString
             metadata.append(descItem)
         }
         
@@ -678,6 +709,8 @@ struct VideoCard: View {
                 startTime: startTime,
                 itemID: item.id,
                 videoID: video.id,
+                availableFiles: video.files,
+                currentQuality: file.quality,
                 from: rootVC
             )
         }
@@ -722,11 +755,11 @@ struct CastSection: View {
                                         .fontWeight(.medium)
                                         .lineLimit(2)
                                         .multilineTextAlignment(.center)
-                                        .frame(width: 120, height: 50, alignment: .top) // Fixed height for alignment
+                                        .frame(width: 120, height: 50, alignment: .top)
                                 }
                             }
                         }
-                        .padding(.bottom, 20)
+                        .padding(.vertical, 20)
                     }
                 }
             }
@@ -749,11 +782,11 @@ struct CastSection: View {
                                     .fontWeight(.medium)
                                     .lineLimit(2)
                                     .multilineTextAlignment(.center)
-                                    .frame(width: 120, height: 50, alignment: .top) // Fixed height for alignment
+                                    .frame(width: 120, height: 50, alignment: .top)
                             }
                         }
                     }
-                    .padding(.bottom, 20)
+                    .padding(.vertical, 20)
                 }
             }
         }

@@ -7,7 +7,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @State private var viewModel = SettingsViewModel()
-    @State private var settings = AppSettings.shared
+    @Bindable private var settings = AppSettings.shared
     @State private var showingLogoutAlert = false
     
     var body: some View {
@@ -15,53 +15,16 @@ struct SettingsView: View {
             List {
                 // Playback Settings Section
                 Section("Настройки воспроизведения") {
-                    // Streaming Type - now as navigation link to picker
+                    // Streaming Type
                     NavigationLink {
-                        List {
-                            ForEach(StreamingType.allCases, id: \.self) { type in
-                                Button {
-                                    settings.streamingType = type
-                                } label: {
-                                    HStack {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(type.displayName)
-                                            Text(type.description)
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        Spacer()
-                                        if settings.streamingType == type {
-                                            Image(systemName: "checkmark")
-                                                .foregroundColor(.accentColor)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .navigationTitle("Тип потока")
+                        StreamingTypePicker()
                     } label: {
                         LabeledContent("Тип потока", value: settings.streamingType.displayName)
                     }
                     
-                    // Video Quality - now as navigation link to picker
+                    // Video Quality
                     NavigationLink {
-                        List {
-                            ForEach(VideoQuality.allCases, id: \.self) { quality in
-                                Button {
-                                    settings.preferredQuality = quality
-                                } label: {
-                                    HStack {
-                                        Text(quality.displayName)
-                                        Spacer()
-                                        if settings.preferredQuality == quality {
-                                            Image(systemName: "checkmark")
-                                                .foregroundColor(.accentColor)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .navigationTitle("Качество видео")
+                        VideoQualityPicker()
                     } label: {
                         LabeledContent("Качество видео", value: settings.preferredQuality.displayName)
                     }
@@ -93,6 +56,19 @@ struct SettingsView: View {
                     Text("TMDB предоставляет названия эпизодов, описания и изображения на русском языке")
                 }
                 
+                // Top Shelf Section
+                Section {
+                    NavigationLink {
+                        TopShelfPickerView()
+                    } label: {
+                        LabeledContent("Контент Top Shelf", value: settings.topShelfContentType.displayName)
+                    }
+                } header: {
+                    Text("Top Shelf")
+                } footer: {
+                    Text("Выберите, какой контент отображать в превью приложения на главном экране Apple TV")
+                }
+                
                 // Device Section
                 Section("Устройство") {
                     if let device = viewModel.device {
@@ -100,31 +76,10 @@ struct SettingsView: View {
                     }
                 }
                 
-                // User Info Section - now as NavigationLink
+                // User Info Section
                 Section {
                     NavigationLink {
-                        List {
-                            if let user = viewModel.user {
-                                LabeledContent("Пользователь", value: user.username)
-                                
-                                if let regDate = viewModel.registrationDate {
-                                    LabeledContent("Дата регистрации", value: formatDate(regDate))
-                                }
-                                
-                                if let endDate = viewModel.subscriptionEndDate {
-                                    LabeledContent("Подписка до", value: formatDate(endDate))
-                                }
-                                
-                                LabeledContent("Осталось дней", value: "\(viewModel.subscriptionDaysLeft)")
-                            } else {
-                                HStack {
-                                    Text("Загрузка...")
-                                    Spacer()
-                                    ProgressView()
-                                }
-                            }
-                        }
-                        .navigationTitle("Данные о пользователе")
+                        UserInfoView(viewModel: viewModel)
                     } label: {
                         HStack {
                             Label("Данные о пользователе", systemImage: "person.circle")
@@ -137,21 +92,10 @@ struct SettingsView: View {
                     }
                 }
                 
-                // App Data Section (Stats for Nerds style)
+                // App Data Section
                 Section {
                     NavigationLink {
-                        List {
-                            LabeledContent("Версия", value: viewModel.appVersion)
-                            LabeledContent("Сборка", value: viewModel.buildNumber)
-                            
-                            if let device = viewModel.device {
-                                LabeledContent("ID устройства", value: "\(device.id)")
-                            }
-                            
-                            LabeledContent("tvOS", value: UIDevice.current.systemVersion)
-                            LabeledContent("Модель", value: deviceModel())
-                        }
-                        .navigationTitle("Данные о приложении")
+                        AppInfoView(viewModel: viewModel)
                     } label: {
                         Label("Данные о приложении", systemImage: "info.circle")
                     }
@@ -171,7 +115,7 @@ struct SettingsView: View {
                 }
             }
             .listStyle(.grouped)
-            .navigationTitle("Настройки")
+            .navigationTitle("")
             .alert("Ошибка", isPresented: .constant(viewModel.error != nil)) {
                 Button("OK") { viewModel.error = nil }
             } message: {
@@ -190,12 +134,153 @@ struct SettingsView: View {
             }
         }
     }
+}
+
+// MARK: - Streaming Type Picker
+
+struct StreamingTypePicker: View {
+    @Bindable private var settings = AppSettings.shared
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        List {
+            ForEach(StreamingType.allCases, id: \.self) { type in
+                Button {
+                    settings.streamingType = type
+                    dismiss()
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(type.displayName)
+                            Text(type.description)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        if settings.streamingType == type {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Тип потока")
+    }
+}
+
+// MARK: - Video Quality Picker
+
+struct VideoQualityPicker: View {
+    @Bindable private var settings = AppSettings.shared
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        List {
+            ForEach(VideoQuality.allCases, id: \.self) { quality in
+                Button {
+                    settings.preferredQuality = quality
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(quality.displayName)
+                        Spacer()
+                        if settings.preferredQuality == quality {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Качество видео")
+    }
+}
+
+// MARK: - Top Shelf Picker
+
+struct TopShelfPickerView: View {
+    @Bindable private var settings = AppSettings.shared
+    @Environment(\.dismiss) private var dismiss
+    
+    var body: some View {
+        List {
+            ForEach(TopShelfContentType.allCases, id: \.self) { contentType in
+                Button {
+                    settings.topShelfContentType = contentType
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(contentType.displayName)
+                        Spacer()
+                        if settings.topShelfContentType == contentType {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.accentColor)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Контент Top Shelf")
+    }
+}
+
+// MARK: - User Info View
+
+struct UserInfoView: View {
+    let viewModel: SettingsViewModel
+    
+    var body: some View {
+        List {
+            if let user = viewModel.user {
+                LabeledContent("Пользователь", value: user.username)
+                
+                if let regDate = viewModel.registrationDate {
+                    LabeledContent("Дата регистрации", value: formatDate(regDate))
+                }
+                
+                if let endDate = viewModel.subscriptionEndDate {
+                    LabeledContent("Подписка до", value: formatDate(endDate))
+                }
+                
+                LabeledContent("Осталось дней", value: "\(viewModel.subscriptionDaysLeft)")
+            } else {
+                HStack {
+                    Text("Загрузка...")
+                    Spacer()
+                    ProgressView()
+                }
+            }
+        }
+        .navigationTitle("Данные о пользователе")
+    }
     
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .long
         formatter.locale = Locale(identifier: "ru_RU")
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - App Info View
+
+struct AppInfoView: View {
+    let viewModel: SettingsViewModel
+    
+    var body: some View {
+        List {
+            LabeledContent("Версия", value: viewModel.appVersion)
+            LabeledContent("Сборка", value: viewModel.buildNumber)
+            
+            if let device = viewModel.device {
+                LabeledContent("ID устройства", value: "\(device.id)")
+            }
+            
+            LabeledContent("tvOS", value: UIDevice.current.systemVersion)
+            LabeledContent("Модель", value: deviceModel())
+        }
+        .navigationTitle("Данные о приложении")
     }
     
     private func deviceModel() -> String {

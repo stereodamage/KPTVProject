@@ -89,31 +89,26 @@ struct EpisodesView: View {
             return
         }
         
-        // Skip if no IMDb ID
-        guard let imdbId = item.imdb, imdbId > 0 else { return }
-        
         isLoadingTMDB = true
         defer { isLoadingTMDB = false }
         
         do {
-            // Find TMDB show by IMDb ID
-            let imdbString = String(imdbId)
-            if let showId = try await TMDBService.shared.findByIMDbId(imdbString) {
-                tmdbShowId = showId
-                
-                // Load season details
-                if let seasonDetail = try await TMDBService.shared.getSeasonDetail(
-                    showId: showId,
-                    seasonNumber: season.number
-                ) {
-                    // Map episodes by number
-                    if let episodes = seasonDetail.episodes {
-                        var episodeMap: [Int: TMDBEpisode] = [:]
-                        for episode in episodes {
-                            episodeMap[episode.episodeNumber] = episode
-                        }
-                        tmdbEpisodes = episodeMap
+            // Use consolidated lookup method
+            guard let showId = try await TMDBService.shared.findShowId(for: item) else { return }
+            tmdbShowId = showId
+            
+            // Load season details
+            if let seasonDetail = try await TMDBService.shared.getSeasonDetail(
+                showId: showId,
+                seasonNumber: season.number
+            ) {
+                // Map episodes by number
+                if let episodes = seasonDetail.episodes {
+                    var episodeMap: [Int: TMDBEpisode] = [:]
+                    for episode in episodes {
+                        episodeMap[episode.episodeNumber] = episode
                     }
+                    tmdbEpisodes = episodeMap
                 }
             }
         } catch {
@@ -297,8 +292,8 @@ struct EpisodeRow: View {
     }
     
     private func playEpisode() {
-        guard let file = episode.files?.first,
-              let urlString = file.url.hls4 ?? file.url.hls ?? file.url.http,
+        guard let file = episode.files?.preferredFile,
+              let urlString = file.url.preferredURL,
               let url = URL(string: urlString) else { return }
         
         // Set metadata for the player info panel
@@ -316,28 +311,11 @@ struct EpisodeRow: View {
         subtitleItem.value = "S\(seasonNumber)E\(episode.number) - \(episodeTitle)" as NSString
         metadata.append(subtitleItem)
         
-        // Build description with audio info
-        var descriptionParts: [String] = []
-        
-        // Episode overview from TMDB
+        // Only add episode overview, let native player handle audio tracks
         if let overview = episodeOverview, !overview.isEmpty {
-            descriptionParts.append(overview)
-        }
-        
-        // Audio tracks formatted for player: "Русский - AniLibria - AC3"
-        if let audios = episode.audios, !audios.isEmpty {
-            let audioLines = audios.map { $0.formattedForPlayer }
-            let audioSection = "🔊 Доступные аудиодорожки:\n" + audioLines.enumerated().map { idx, line in
-                "\(idx + 1). \(line)"
-            }.joined(separator: "\n")
-            descriptionParts.append(audioSection)
-        }
-        
-        // Set combined description
-        if !descriptionParts.isEmpty {
             let descItem = AVMutableMetadataItem()
             descItem.identifier = .commonIdentifierDescription
-            descItem.value = descriptionParts.joined(separator: "\n\n") as NSString
+            descItem.value = overview as NSString
             metadata.append(descItem)
         }
         
@@ -359,11 +337,13 @@ struct EpisodeRow: View {
                 itemID: item.id,
                 seasonNumber: seasonNumber,
                 videoID: episode.id,
+                availableFiles: episode.files,
+                currentQuality: file.quality,
                 autoPlayNext: {
                     guard AppSettings.shared.autoPlayNextEpisode,
                           let next = nextEpisode,
-                          let nextFile = next.files?.first,
-                          let nextURLString = nextFile.url.hls4 ?? nextFile.url.hls ?? nextFile.url.http,
+                          let nextFile = next.files?.preferredFile,
+                          let nextURLString = nextFile.url.preferredURL,
                           let nextURL = URL(string: nextURLString) else { return nil }
                     
                     var nextMetadata: [AVMetadataItem] = []
@@ -390,7 +370,9 @@ struct EpisodeRow: View {
                         startTime: nextStart,
                         itemID: item.id,
                         seasonNumber: seasonNumber,
-                        videoID: next.id
+                        videoID: next.id,
+                        availableFiles: next.files,
+                        currentQuality: nextFile.quality
                     )
                 },
                 from: rootVC
@@ -426,11 +408,12 @@ struct EpisodeRow: View {
     private func formatDuration(_ seconds: Int) -> String {
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
+        let secs = seconds % 60
         
         if hours > 0 {
             return String(format: "%d:%02d", hours, minutes)
         } else {
-            return String(format: "%d:%02d", 0, minutes)
+            return String(format: "%d:%02d", minutes, secs)
         }
     }
 }

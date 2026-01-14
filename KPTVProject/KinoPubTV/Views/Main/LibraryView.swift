@@ -104,13 +104,13 @@ struct LibraryView: View {
                 reloadContent()
             }
             ForEach(viewModel.availableYears, id: \.self) { year in
-                Button("\(year)") {
+                Button(String(year)) {
                     viewModel.selectedYear = year
                     reloadContent()
                 }
             }
         } label: {
-            filterLabel("Год", value: viewModel.selectedYear.map { "\($0)" } ?? "Все")
+            filterLabel("Год", value: viewModel.selectedYear.map { String($0) } ?? "Все")
         }
     }
     
@@ -152,9 +152,6 @@ struct LibraryView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .background(Color(white: 0.85))
-        .foregroundColor(.black)
-        .cornerRadius(8)
     }
     
     private func reloadContent() {

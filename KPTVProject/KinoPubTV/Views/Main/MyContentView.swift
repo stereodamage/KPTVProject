@@ -53,7 +53,6 @@ enum MyContentSection: Hashable, Identifiable {
 struct MyContentView: View {
     @State private var selectedSection: MyContentSection = .watching
     @State private var viewModel = MyContentViewModel()
-    @Namespace private var animation
     
     // Build sections list dynamically including bookmark folders
     var sections: [MyContentSection] {
@@ -62,20 +61,18 @@ struct MyContentView: View {
         for folder in viewModel.bookmarkFolders {
             result.append(.folder(folder))
         }
-        result.append(contentsOf: [.history, .library])
+        result.append(.history)
         return result
     }
     
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Top Tab Bar
-                TabBarView(
+                // Top Menu
+                TopMenuView(
                     sections: sections,
-                    selectedSection: $selectedSection,
-                    namespace: animation
+                    selectedSection: $selectedSection
                 )
-                .padding(.top, 60)
                 
                 // Main content
                 contentView
@@ -85,7 +82,6 @@ struct MyContentView: View {
                 DetailView(itemID: item.id)
             }
             .task {
-                // Load bookmark folders for tab bar
                 await viewModel.loadBookmarks()
             }
         }
@@ -108,79 +104,80 @@ struct MyContentView: View {
     }
 }
 
-// MARK: - Tab Bar View
+// MARK: - Top Menu View
 
-struct TabBarView: View {
+struct TopMenuView: View {
     let sections: [MyContentSection]
     @Binding var selectedSection: MyContentSection
-    var namespace: Namespace.ID
+    
+    // Split sections into main and folders
+    var mainSections: [MyContentSection] {
+        sections.filter { !$0.isFolder }
+    }
+    
+    var folderSections: [MyContentSection] {
+        sections.filter { $0.isFolder }
+    }
     
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 50) {
-                ForEach(sections) { section in
-                    TabButton(
-                        title: section.title,
-                        icon: section.icon,
-                        isSelected: selectedSection == section,
-                        namespace: namespace
+        VStack(spacing: 20) {
+            // Main row: Watching, Bookmarks, History, Library
+            HStack(spacing: 12) {
+                ForEach(mainSections) { section in
+                    TopMenuItem(
+                        section: section,
+                        isSelected: selectedSection == section
                     ) {
-                        withAnimation(.smooth(duration: 0.25)) {
+                        selectedSection = section
+                    }
+                }
+            }
+            
+            // Folders row (if any)
+            if !folderSections.isEmpty {
+                HStack(spacing: 12) {
+                    ForEach(folderSections) { section in
+                        TopMenuItem(
+                            section: section,
+                            isSelected: selectedSection == section
+                        ) {
                             selectedSection = section
                         }
                     }
                 }
             }
-            .padding(.horizontal, 90)
-            .padding(.vertical, 30)
-            .focusSection()
         }
-        .frame(height: 160)
+        .padding(.vertical, 30)
+        .frame(maxWidth: .infinity)
+        .focusSection()
     }
 }
 
-// MARK: - Tab Button
+// MARK: - Top Menu Item
 
-struct TabButton: View {
-    let title: String
-    let icon: String
+struct TopMenuItem: View {
+    let section: MyContentSection
     let isSelected: Bool
-    var namespace: Namespace.ID
     let action: () -> Void
     
     @FocusState private var isFocused: Bool
     
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 32, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isFocused ? Color.primary : (isSelected ? Color.white : Color.secondary))
-                    .frame(height: 40)
+            HStack(spacing: 10) {
+                Image(systemName: section.icon)
+                    .font(.system(size: 20))
                 
-                Text(title)
-                    .font(.system(size: 24, weight: isFocused ? .semibold : .regular))
-                    .foregroundStyle(isFocused ? Color.primary : (isSelected ? Color.white : Color.secondary))
-                    .lineLimit(1)
+                Text(section.title)
+                    .font(.callout)
+                    .fontWeight(isSelected ? .semibold : .regular)
             }
-            .frame(minWidth: 100)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background {
-                if isFocused {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(.regularMaterial)
-                } else if isSelected {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(.white.opacity(0.1))
-                }
-            }
-            .scaleEffect(isFocused ? 1.1 : 1.0)
-            .shadow(color: .black.opacity(isFocused ? 0.3 : 0), radius: 20, y: 10)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
+            .foregroundColor(isFocused ? .black : (isSelected ? .white : .gray))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.card)
         .focused($isFocused)
-        .animation(.smooth(duration: 0.2), value: isFocused)
     }
 }
 
@@ -191,19 +188,19 @@ struct WatchingContentView: View {
     
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 40) {
+            LazyVStack(alignment: .leading, spacing: 50) {
                 // Unwatched Serials
                 if !viewModel.unwatchedSerials.isEmpty {
-                    ContentShelf(
-                        title: RussianPlural.series(viewModel.unwatchedSerials.count),
+                    ContentGridSection(
+                        title: "Сериалы (\(viewModel.unwatchedSerials.count))",
                         items: viewModel.unwatchedSerials
                     )
                 }
                 
                 // Unwatched Movies
                 if !viewModel.unwatchedMovies.isEmpty {
-                    ContentShelf(
-                        title: RussianPlural.movies(viewModel.unwatchedMovies.count),
+                    ContentGridSection(
+                        title: "Фильмы (\(viewModel.unwatchedMovies.count))",
                         items: viewModel.unwatchedMovies
                     )
                 }
@@ -233,67 +230,86 @@ struct WatchingContentView: View {
     }
 }
 
+// MARK: - Content Grid Section
+
+struct ContentGridSection: View {
+    let title: String
+    let items: [Item]
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 30) {
+            Text(title)
+                .font(.title2)
+                .fontWeight(.bold)
+                .padding(.horizontal, 50)
+            
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 40), count: 5),
+                spacing: 50
+            ) {
+                ForEach(items) { item in
+                    VStack(alignment: .leading, spacing: 12) {
+                        NavigationLink(value: item) {
+                            PosterCard(item: item)
+                        }
+                        .buttonStyle(.card)
+                        
+                        ItemMetadata(item: item, width: 250)
+                    }
+                }
+            }
+            .padding(.horizontal, 50)
+        }
+    }
+}
+
 // MARK: - Bookmarks Content View
 
 struct BookmarksContentView: View {
     @State private var viewModel = MyContentViewModel()
     @State private var showingCreateFolder = false
     @State private var newFolderName = ""
+    @State private var selectedFolder: BookmarkFolder?
     
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 40) {
-                // Create folder button
-                HStack {
-                    Spacer()
-                    Button {
-                        showingCreateFolder = true
-                    } label: {
-                        Label("Создать папку", systemImage: "plus")
-                    }
-                }
-                .padding(.horizontal, 50)
+            VStack(alignment: .leading, spacing: 30) {
+                Text("Мои папки")
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 50)
+                    .padding(.top, 30)
                 
-                if !viewModel.bookmarkFolders.isEmpty {
+                // Folders Grid with Create button as first tile
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 40), count: 5),
+                    spacing: 40
+                ) {
+                    // Create new folder tile
+                    CreateFolderCard {
+                        showingCreateFolder = true
+                    }
+                    
+                    // Existing folders
                     ForEach(viewModel.bookmarkFolders) { folder in
-                        if let items = viewModel.bookmarkItems[folder.id], !items.isEmpty {
-                            ContentShelf(
-                                title: "\(folder.title) (\(folder.count ?? items.count))",
-                                items: items
-                            )
-                        } else {
-                            // Show empty folder
-                            VStack(alignment: .leading, spacing: 20) {
-                                Text(folder.title)
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                                    .padding(.horizontal, 50)
-                                
-                                Text("Пусто")
-                                    .foregroundColor(.secondary)
-                                    .padding(.horizontal, 50)
-                            }
+                        FolderCard(
+                            folder: folder,
+                            itemCount: viewModel.bookmarkItems[folder.id]?.count ?? 0
+                        ) {
+                            selectedFolder = folder
                         }
                     }
                 }
-                
-                if viewModel.bookmarkFolders.isEmpty && !viewModel.isLoading {
-                    ContentUnavailableView(
-                        "Нет закладок",
-                        systemImage: "bookmark",
-                        description: Text("Добавляйте фильмы и сериалы в закладки для быстрого доступа")
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 400)
-                }
+                .padding(.horizontal, 50)
+                .padding(.bottom, 50)
             }
-            .padding(.vertical, 50)
         }
         .overlay {
             if viewModel.isLoading && viewModel.bookmarkFolders.isEmpty {
                 ProgressView("Загрузка...")
             }
         }
-        .alert("Создать закладку", isPresented: $showingCreateFolder) {
+        .alert("Создать папку", isPresented: $showingCreateFolder) {
             TextField("Название", text: $newFolderName)
             Button("Создать") {
                 Task {
@@ -305,10 +321,128 @@ struct BookmarksContentView: View {
                 newFolderName = ""
             }
         }
+        .navigationDestination(isPresented: Binding(
+            get: { selectedFolder != nil },
+            set: { if !$0 { selectedFolder = nil } }
+        )) {
+            if let folder = selectedFolder {
+                FolderDetailView(folder: folder)
+            }
+        }
         .task {
             await viewModel.loadBookmarks()
         }
         .refreshable {
+            await viewModel.loadBookmarks()
+        }
+    }
+}
+
+// MARK: - Create Folder Card
+
+struct CreateFolderCard: View {
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 16) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 50))
+                    .foregroundStyle(.blue)
+                
+                Text("Создать папку")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(height: 200)
+        }
+        .buttonStyle(.card)
+    }
+}
+
+// MARK: - Folder Card
+
+struct FolderCard: View {
+    let folder: BookmarkFolder
+    let itemCount: Int
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 50))
+                        .foregroundStyle(.blue)
+                    
+                    Spacer()
+                    
+                    if itemCount > 0 {
+                        Text("\(itemCount)")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                
+                Spacer()
+                
+                Text(folder.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                    .foregroundStyle(.primary)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 200)
+        }
+        .buttonStyle(.card)
+    }
+}
+
+// MARK: - Folder Detail View
+
+struct FolderDetailView: View {
+    let folder: BookmarkFolder
+    @State private var viewModel = MyContentViewModel()
+    
+    var items: [Item] {
+        viewModel.bookmarkItems[folder.id] ?? []
+    }
+    
+    var body: some View {
+        ScrollView {
+            if !items.isEmpty {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(), spacing: 40), count: 5),
+                    spacing: 50
+                ) {
+                    ForEach(items) { item in
+                        VStack(alignment: .leading, spacing: 24) {
+                            NavigationLink(value: item) {
+                                PosterCard(item: item)
+                            }
+                            .buttonStyle(.card)
+                            
+                            ItemMetadata(item: item, width: 250)
+                        }
+                    }
+                }
+                .padding(50)
+            } else {
+                ContentUnavailableView(
+                    "Папка пуста",
+                    systemImage: "folder",
+                    description: Text("Добавьте контент в эту папку")
+                )
+            }
+        }
+        .navigationTitle(folder.title)
+        .navigationDestination(for: Item.self) { item in
+            DetailView(itemID: item.id)
+        }
+        .task {
             await viewModel.loadBookmarks()
         }
     }
@@ -431,7 +565,7 @@ struct HistoryShelf: View {
                 .padding(.horizontal, 50)
             
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 30) {
+                LazyHStack(spacing: 40) {
                     ForEach(items) { historyItem in
                         VStack(alignment: .leading, spacing: 12) {
                             NavigationLink(value: historyItem.item) {
@@ -471,7 +605,7 @@ struct HistoryShelf: View {
                     }
                 }
                 .padding(.horizontal, 50)
-                .padding(.bottom, 30)
+                .padding(.vertical, 40)
                 .focusSection()
             }
         }
@@ -505,15 +639,15 @@ struct HistoryCard: View {
             .clipped()
             
             // Top-right badge for episode info
-            if historyItem.item.isSerial, let media = historyItem.media.snumber {
-                Text("S\(media)E\(historyItem.media.number ?? 0)")
-                    .font(.system(size: 12, weight: .bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+            if historyItem.item.isSerial, let season = historyItem.media.snumber {
+                Text("S\(season)E\(historyItem.media.number ?? 0)")
+                    .font(.system(size: 22, weight: .bold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                     .background(Color.red)
                     .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .padding(10)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .padding(12)
             }
         }
     }

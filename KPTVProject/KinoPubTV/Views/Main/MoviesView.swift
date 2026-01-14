@@ -82,7 +82,7 @@ struct FeaturedCarousel: View {
                 }
             }
             .padding(.horizontal, 50)
-            .padding(.bottom, 20)
+            .padding(.vertical, 40)
             .focusSection()
         }
     }

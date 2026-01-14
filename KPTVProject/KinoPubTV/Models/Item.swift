@@ -291,7 +291,7 @@ struct HistoryResponse: Codable {
 }
 
 struct HistoryItem: Codable, Identifiable {
-    var id: Int { item.id }
+    var id: String { "\(item.id)-\(media.id)" }
     let item: Item
     let media: HistoryMedia
     let lastSeen: Int
