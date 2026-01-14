@@ -100,6 +100,16 @@ struct TMDBShow: Codable, Identifiable, Sendable {
         guard let date = dateString, date.count >= 4 else { return nil }
         return Int(date.prefix(4))
     }
+    
+    var backdropURL: URL? {
+        guard let path = backdropPath else { return nil }
+        return URL(string: "\(TMDBConfig.imageBaseURL)/w1280\(path)")
+    }
+    
+    var backdropURLOriginal: URL? {
+        guard let path = backdropPath else { return nil }
+        return URL(string: "\(TMDBConfig.imageBaseURL)/original\(path)")
+    }
 }
 
 struct TMDBSeasonDetail: Codable, Sendable {
@@ -187,9 +197,15 @@ actor TMDBService {
     
     private let session: URLSession
     private var showCache: [String: Int] = [:] // IMDb ID -> TMDB ID
+    private var titleCache: [String: Int] = [:] // "title-year" -> TMDB ID
+    private var showDetailCache: [Int: TMDBShow] = [:] // TMDB ID -> Show details
     private var episodeCache: [String: CachedTMDBEpisode] = [:] // "tmdbId-season-episode" -> episode data
     private var seasonCache: [String: TMDBSeasonDetail] = [:] // "tmdbId-season" -> season detail
     private var personCache: [String: URL] = [:] // Name -> Profile URL
+    
+    // In-flight request deduplication
+    private var pendingShowLookups: [String: Task<Int?, Error>] = [:]
+    private var pendingSeasonLookups: [String: Task<TMDBSeasonDetail?, Error>] = [:]
     
     private init() {
         let config = URLSessionConfiguration.default
@@ -200,6 +216,64 @@ actor TMDBService {
     
     // MARK: - Public API
     
+    /// Find TMDB ID for an item, using all available methods
+    func findShowId(for item: Item) async throws -> Int? {
+        // Try IMDb ID first (fastest)
+        if let imdbId = item.imdb, imdbId > 0 {
+            if let showId = try await findByIMDbId(String(imdbId)) {
+                return showId
+            }
+        }
+        
+        // Try original title search
+        if let originalTitle = item.originalTitle {
+            if let showId = try await searchShowId(name: originalTitle, year: item.year, isSerial: item.isSerial) {
+                return showId
+            }
+        }
+        
+        // Try localized title
+        if let showId = try await searchShowId(name: item.displayTitle, year: item.year, isSerial: item.isSerial) {
+            return showId
+        }
+        
+        return nil
+    }
+    
+    /// Search for TMDB ID by name (with caching)
+    func searchShowId(name: String, year: Int?, isSerial: Bool) async throws -> Int? {
+        let cacheKey = "\(name.lowercased())-\(year ?? 0)-\(isSerial ? "tv" : "movie")"
+        
+        // Check cache
+        if let cached = titleCache[cacheKey] {
+            return cached
+        }
+        
+        // Check for in-flight request
+        if let pending = pendingShowLookups[cacheKey] {
+            return try await pending.value
+        }
+        
+        // Create new lookup task
+        let task = Task<Int?, Error> {
+            let show = isSerial
+                ? try await searchTVShow(name: name, year: year)
+                : try await searchMovie(name: name, year: year)
+            
+            if let showId = show?.id {
+                titleCache[cacheKey] = showId
+                showDetailCache[showId] = show
+                return showId
+            }
+            return nil
+        }
+        
+        pendingShowLookups[cacheKey] = task
+        defer { pendingShowLookups.removeValue(forKey: cacheKey) }
+        
+        return try await task.value
+    }
+    
     /// Find TMDB show/movie by IMDb ID
     func findByIMDbId(_ imdbId: String) async throws -> Int? {
         // Check cache first
@@ -207,36 +281,52 @@ actor TMDBService {
             return cachedId
         }
         
-        // Format IMDb ID properly (tt + 7 digits)
-        let formattedId = formatIMDbId(imdbId)
+        // Check for in-flight request
+        let cacheKey = "imdb-\(imdbId)"
+        if let pending = pendingShowLookups[cacheKey] {
+            return try await pending.value
+        }
         
-        let urlString = "\(TMDBConfig.baseURL)/find/\(formattedId)?api_key=\(TMDBConfig.apiKey)&external_source=imdb_id"
-        
-        guard let url = URL(string: urlString) else {
+        // Create new lookup task
+        let task = Task<Int?, Error> {
+            // Format IMDb ID properly (tt + 7 digits)
+            let formattedId = formatIMDbId(imdbId)
+            
+            let urlString = "\(TMDBConfig.baseURL)/find/\(formattedId)?api_key=\(TMDBConfig.apiKey)&external_source=imdb_id"
+            
+            guard let url = URL(string: urlString) else {
+                return nil
+            }
+            
+            let (data, response) = try await session.data(from: url)
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                return nil
+            }
+            
+            let result = try JSONDecoder().decode(TMDBFindResult.self, from: data)
+            
+            // Check TV results first, then movies
+            if let show = result.tvResults.first {
+                showCache[imdbId] = show.id
+                showDetailCache[show.id] = show
+                return show.id
+            }
+            
+            if let movie = result.movieResults.first {
+                showCache[imdbId] = movie.id
+                showDetailCache[movie.id] = movie
+                return movie.id
+            }
+            
             return nil
         }
         
-        let (data, response) = try await session.data(from: url)
+        pendingShowLookups[cacheKey] = task
+        defer { pendingShowLookups.removeValue(forKey: cacheKey) }
         
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            return nil
-        }
-        
-        let result = try JSONDecoder().decode(TMDBFindResult.self, from: data)
-        
-        // Check TV results first, then movies
-        if let show = result.tvResults.first {
-            showCache[imdbId] = show.id
-            return show.id
-        }
-        
-        if let movie = result.movieResults.first {
-            showCache[imdbId] = movie.id
-            return movie.id
-        }
-        
-        return nil
+        return try await task.value
     }
     
     /// Search for TV show by name and year
@@ -260,6 +350,55 @@ actor TMDBService {
         
         let result = try JSONDecoder().decode(TMDBSearchResult.self, from: data)
         return result.results.first
+    }
+    
+    /// Search for movie by name and year
+    func searchMovie(name: String, year: Int? = nil) async throws -> TMDBShow? {
+        var urlString = "\(TMDBConfig.baseURL)/search/movie?api_key=\(TMDBConfig.apiKey)&query=\(name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name)&language=ru-RU"
+        
+        if let year = year {
+            urlString += "&year=\(year)"
+        }
+        
+        guard let url = URL(string: urlString) else {
+            return nil
+        }
+        
+        let (data, response) = try await session.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            return nil
+        }
+        
+        let result = try JSONDecoder().decode(TMDBSearchResult.self, from: data)
+        return result.results.first
+    }
+    
+    /// Get backdrop URL for an item by searching TMDB
+    func getBackdropURL(for item: Item) async -> URL? {
+        // Try TMDB search if enabled
+        let useTMDB = await MainActor.run { AppSettings.shared.useTMDBMetadata }
+        guard useTMDB else {
+            // Fallback to wide poster from KinoPub
+            return URL.secure(string: item.posters?.wide)
+        }
+        
+        // Try IMDb ID first
+        if let imdbId = item.imdb,
+           let tmdbId = try? await findByIMDbId(String(imdbId)) {
+            let show = item.isSerial 
+                ? try? await searchTVShow(name: item.displayTitle, year: item.year)
+                : try? await searchMovie(name: item.displayTitle, year: item.year)
+            return show?.backdropURL ?? URL.secure(string: item.posters?.wide)
+        }
+        
+        // Fallback to name search
+        let show = item.isSerial 
+            ? try? await searchTVShow(name: item.displayTitle, year: item.year)
+            : try? await searchMovie(name: item.displayTitle, year: item.year)
+        
+        return show?.backdropURL ?? URL.secure(string: item.posters?.wide)
     }
     
     /// Search for person by name and return profile image URL
@@ -301,37 +440,50 @@ actor TMDBService {
             return cached
         }
         
-        let urlString = "\(TMDBConfig.baseURL)/tv/\(showId)/season/\(seasonNumber)?api_key=\(TMDBConfig.apiKey)&language=ru-RU"
-        
-        guard let url = URL(string: urlString) else {
-            return nil
+        // Check for in-flight request
+        if let pending = pendingSeasonLookups[cacheKey] {
+            return try await pending.value
         }
         
-        let (data, response) = try await session.data(from: url)
-        
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            return nil
-        }
-        
-        let season = try JSONDecoder().decode(TMDBSeasonDetail.self, from: data)
-        seasonCache[cacheKey] = season
-        
-        // Cache individual episodes
-        if let episodes = season.episodes {
-            for episode in episodes {
-                let episodeKey = "\(showId)-\(seasonNumber)-\(episode.episodeNumber)"
-                episodeCache[episodeKey] = CachedTMDBEpisode(
-                    name: episode.name,
-                    overview: episode.overview,
-                    stillURL: episode.stillURL,
-                    airDate: episode.airDate,
-                    runtime: episode.runtime
-                )
+        // Create new lookup task
+        let task = Task<TMDBSeasonDetail?, Error> {
+            let urlString = "\(TMDBConfig.baseURL)/tv/\(showId)/season/\(seasonNumber)?api_key=\(TMDBConfig.apiKey)&language=ru-RU"
+            
+            guard let url = URL(string: urlString) else {
+                return nil
             }
+            
+            let (data, response) = try await session.data(from: url)
+            
+            guard let httpResponse = response as? HTTPURLResponse,
+                  httpResponse.statusCode == 200 else {
+                return nil
+            }
+            
+            let season = try JSONDecoder().decode(TMDBSeasonDetail.self, from: data)
+            seasonCache[cacheKey] = season
+            
+            // Cache individual episodes
+            if let episodes = season.episodes {
+                for episode in episodes {
+                    let episodeKey = "\(showId)-\(seasonNumber)-\(episode.episodeNumber)"
+                    episodeCache[episodeKey] = CachedTMDBEpisode(
+                        name: episode.name,
+                        overview: episode.overview,
+                        stillURL: episode.stillURL,
+                        airDate: episode.airDate,
+                        runtime: episode.runtime
+                    )
+                }
+            }
+            
+            return season
         }
         
-        return season
+        pendingSeasonLookups[cacheKey] = task
+        defer { pendingSeasonLookups.removeValue(forKey: cacheKey) }
+        
+        return try await task.value
     }
     
     /// Get episode info

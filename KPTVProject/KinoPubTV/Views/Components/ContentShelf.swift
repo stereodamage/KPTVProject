@@ -36,8 +36,8 @@ struct ContentShelf: View {
                     }
                 }
                 .padding(.horizontal, 50)
-                .padding(.bottom, 30) // Add padding for focus expansion
-                .focusSection() // Group shelf items for better focus navigation
+                .padding(.vertical, 40)
+                .focusSection()
             }
         }
     }
@@ -57,7 +57,7 @@ struct CollectionShelf: View {
                 .padding(.horizontal, 50)
             
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 30) {
+                LazyHStack(spacing: 40) {
                     ForEach(collections) { collection in
                         VStack(alignment: .leading, spacing: 24) {
                             NavigationLink {
@@ -77,7 +77,7 @@ struct CollectionShelf: View {
                     }
                 }
                 .padding(.horizontal, 50)
-                .padding(.bottom, 30)
+                .padding(.vertical, 40)
                 .focusSection()
             }
         }

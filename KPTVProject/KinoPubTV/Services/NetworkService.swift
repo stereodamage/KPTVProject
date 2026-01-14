@@ -96,6 +96,11 @@ actor NetworkService {
         request.httpMethod = endpoint.method.rawValue
         request.httpBody = endpoint.body
         
+        // Add Accept-Language header to match system locale
+        if let preferredLanguage = Locale.preferredLanguages.first {
+            request.setValue(preferredLanguage, forHTTPHeaderField: "Accept-Language")
+        }
+        
         for (key, value) in endpoint.headers {
             request.setValue(value, forHTTPHeaderField: key)
         }
@@ -145,6 +150,11 @@ actor NetworkService {
         var request = URLRequest(url: url)
         request.httpMethod = endpoint.method.rawValue
         request.httpBody = endpoint.body
+        
+        // Add Accept-Language header to match system locale
+        if let preferredLanguage = Locale.preferredLanguages.first {
+            request.setValue(preferredLanguage, forHTTPHeaderField: "Accept-Language")
+        }
         
         for (key, value) in endpoint.headers {
             request.setValue(value, forHTTPHeaderField: key)

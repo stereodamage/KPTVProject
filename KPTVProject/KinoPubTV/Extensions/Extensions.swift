@@ -88,14 +88,20 @@ extension Date {
 // MARK: - Duration Formatting
 
 extension Int {
+    /// Format duration based on length:
+    /// - For >= 1 hour: HH:MM format (e.g., "1:45")
+    /// - For < 1 hour: MM:SS format (e.g., "45:30")
     var formattedDuration: String {
         let hours = self / 3600
         let minutes = (self % 3600) / 60
+        let seconds = self % 60
         
         if hours > 0 {
-            return "\(hours)ч \(minutes)м"
+            // HH:MM format for content >= 1 hour
+            return String(format: "%d:%02d", hours, minutes)
         } else {
-            return "\(minutes)м"
+            // MM:SS format for content < 1 hour
+            return String(format: "%d:%02d", minutes, seconds)
         }
     }
 }
@@ -145,6 +151,47 @@ extension URL {
     }
 }
 
+// MARK: - VideoURL Extensions
+
+extension VideoURL {
+    /// Returns the appropriate streaming URL based on user settings
+    var preferredURL: String? {
+        let streamingType = AppSettings.shared.streamingType
+        switch streamingType {
+        case .hls4:
+            return hls4 ?? hls ?? http
+        case .hls2:
+            return hls2 ?? hls ?? http
+        case .hls:
+            return hls ?? http
+        case .http:
+            return http
+        }
+    }
+}
+
+// MARK: - VideoFile Array Extensions
+
+extension Array where Element == VideoFile {
+    /// Returns the best matching file based on user quality preference
+    var preferredFile: VideoFile? {
+        let quality = AppSettings.shared.preferredQuality
+        
+        if quality == .best {
+            // Return highest quality available (first in array, typically sorted by quality)
+            return first
+        }
+        
+        // Try to find exact match for preferred quality
+        if let match = first(where: { $0.quality == quality.rawValue }) {
+            return match
+        }
+        
+        // Fallback to first available
+        return first
+    }
+}
+
 // MARK: - Audio Track Formatting
 
 extension AudioTrack {
@@ -176,6 +223,42 @@ extension AudioTrack {
         }
         
         return result.isEmpty ? "Аудио \(index ?? 1)" : result
+    }
+    
+    /// Formats for player menu like: "[RUS] LostFilm (Многоголосый) (AC3)"
+    var formattedForPlayerMenu: String {
+        var description: [String] = []
+        
+        // Author/translator first (LostFilm, Кубик в кубе, etc.)
+        if let authorTitle = author?.title, !authorTitle.isEmpty {
+            description.append(authorTitle)
+        }
+        
+        // Audio type second (Дубляж, Многоголосый, Одноголосый, Авторский)
+        if let typeTitle = type?.title, !typeTitle.isEmpty {
+            description.append("(\(typeTitle))")
+        }
+        
+        var result = description.joined(separator: " ")
+        
+        // Codec (AC3)
+        if let codecStr = codec, codecStr.lowercased() == "ac3" {
+            result += result.isEmpty ? "AC3" : " (AC3)"
+        }
+        
+        // Prefix with language code
+        let langPrefix: String
+        if let langCode = lang, !langCode.isEmpty {
+            langPrefix = "[\(langCode.uppercased())]"
+        } else {
+            langPrefix = "[???]"
+        }
+        
+        if result.isEmpty {
+            return "\(langPrefix) Аудио \(index ?? 1)"
+        }
+        
+        return "\(langPrefix) \(result)"
     }
     
     /// Formats with index prefix like: "01. Дубляж. LostFilm (RUS) (AC3)"

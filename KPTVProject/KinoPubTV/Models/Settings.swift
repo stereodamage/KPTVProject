@@ -26,70 +26,139 @@ final class AppSettings {
         static let playNextSeason = "playNextSeason"
         static let showRatings = "showRatings"
         static let useTMDBMetadata = "useTMDBMetadata"
+        static let topShelfContent = "topShelfContent"
     }
+    
+    // MARK: - Backing Storage (for @Observable tracking)
+    
+    private var _streamingType: StreamingType
+    private var _serverLocation: String?
+    private var _preferredQuality: VideoQuality
+    private var _ac3Default: Bool
+    private var _autoPlayNextEpisode: Bool
+    private var _showContinueAlert: Bool
+    private var _playNextSeason: Bool
+    private var _showRatingsOnPosters: Bool
+    private var _useTMDBMetadata: Bool
+    private var _topShelfContentType: TopShelfContentType
     
     // MARK: - Properties
     
     var streamingType: StreamingType {
-        get {
-            if let raw = defaults.string(forKey: Keys.streamingType),
-               let type = StreamingType(rawValue: raw) {
-                return type
-            }
-            return .hls4
+        get { _streamingType }
+        set {
+            _streamingType = newValue
+            defaults.set(newValue.rawValue, forKey: Keys.streamingType)
         }
-        set { defaults.set(newValue.rawValue, forKey: Keys.streamingType) }
     }
     
     var serverLocation: String? {
-        get { defaults.string(forKey: Keys.serverLocation) }
-        set { defaults.set(newValue, forKey: Keys.serverLocation) }
+        get { _serverLocation }
+        set {
+            _serverLocation = newValue
+            defaults.set(newValue, forKey: Keys.serverLocation)
+        }
     }
     
     var preferredQuality: VideoQuality {
-        get {
-            if let raw = defaults.string(forKey: Keys.quality),
-               let quality = VideoQuality(rawValue: raw) {
-                return quality
-            }
-            return .best
+        get { _preferredQuality }
+        set {
+            _preferredQuality = newValue
+            defaults.set(newValue.rawValue, forKey: Keys.quality)
         }
-        set { defaults.set(newValue.rawValue, forKey: Keys.quality) }
     }
     
     var ac3Default: Bool {
-        get { defaults.bool(forKey: Keys.ac3Default) }
-        set { defaults.set(newValue, forKey: Keys.ac3Default) }
+        get { _ac3Default }
+        set {
+            _ac3Default = newValue
+            defaults.set(newValue, forKey: Keys.ac3Default)
+        }
     }
     
     var autoPlayNextEpisode: Bool {
-        get { defaults.object(forKey: Keys.autoPlay) as? Bool ?? true }
-        set { defaults.set(newValue, forKey: Keys.autoPlay) }
+        get { _autoPlayNextEpisode }
+        set {
+            _autoPlayNextEpisode = newValue
+            defaults.set(newValue, forKey: Keys.autoPlay)
+        }
     }
     
     var showContinueAlert: Bool {
-        get { defaults.object(forKey: Keys.showContinueAlert) as? Bool ?? true }
-        set { defaults.set(newValue, forKey: Keys.showContinueAlert) }
+        get { _showContinueAlert }
+        set {
+            _showContinueAlert = newValue
+            defaults.set(newValue, forKey: Keys.showContinueAlert)
+        }
     }
     
     var playNextSeason: Bool {
-        get { defaults.object(forKey: Keys.playNextSeason) as? Bool ?? true }
-        set { defaults.set(newValue, forKey: Keys.playNextSeason) }
+        get { _playNextSeason }
+        set {
+            _playNextSeason = newValue
+            defaults.set(newValue, forKey: Keys.playNextSeason)
+        }
     }
     
     var showRatingsOnPosters: Bool {
-        get { defaults.object(forKey: Keys.showRatings) as? Bool ?? true }
-        set { defaults.set(newValue, forKey: Keys.showRatings) }
+        get { _showRatingsOnPosters }
+        set {
+            _showRatingsOnPosters = newValue
+            defaults.set(newValue, forKey: Keys.showRatings)
+        }
     }
-    
-    // MARK: - TMDB Settings
     
     var useTMDBMetadata: Bool {
-        get { defaults.object(forKey: Keys.useTMDBMetadata) as? Bool ?? true }
-        set { defaults.set(newValue, forKey: Keys.useTMDBMetadata) }
+        get { _useTMDBMetadata }
+        set {
+            _useTMDBMetadata = newValue
+            defaults.set(newValue, forKey: Keys.useTMDBMetadata)
+        }
     }
     
-    private init() {}
+    var topShelfContentType: TopShelfContentType {
+        get { _topShelfContentType }
+        set {
+            _topShelfContentType = newValue
+            defaults.set(newValue.rawValue, forKey: Keys.topShelfContent)
+            Task {
+                await TopShelfService.shared.updateTopShelf(contentType: newValue)
+            }
+        }
+    }
+    
+    private init() {
+        // Load all values from UserDefaults into backing storage
+        if let raw = defaults.string(forKey: Keys.streamingType),
+           let type = StreamingType(rawValue: raw) {
+            _streamingType = type
+        } else {
+            _streamingType = .hls4
+        }
+        
+        _serverLocation = defaults.string(forKey: Keys.serverLocation)
+        
+        if let raw = defaults.string(forKey: Keys.quality),
+           let quality = VideoQuality(rawValue: raw) {
+            _preferredQuality = quality
+        } else {
+            _preferredQuality = .best
+        }
+        
+        _ac3Default = defaults.bool(forKey: Keys.ac3Default)
+        _autoPlayNextEpisode = defaults.object(forKey: Keys.autoPlay) as? Bool ?? true
+        _showContinueAlert = defaults.object(forKey: Keys.showContinueAlert) as? Bool ?? true
+        _playNextSeason = defaults.object(forKey: Keys.playNextSeason) as? Bool ?? true
+        _showRatingsOnPosters = defaults.object(forKey: Keys.showRatings) as? Bool ?? true
+        _useTMDBMetadata = defaults.object(forKey: Keys.useTMDBMetadata) as? Bool ?? true
+        
+        if let raw = defaults.string(forKey: Keys.topShelfContent),
+           let type = TopShelfContentType(rawValue: raw) {
+            _topShelfContentType = type
+        } else {
+            _topShelfContentType = .continueWatching
+        }
+    }
 }
 
 // MARK: - Streaming Type
