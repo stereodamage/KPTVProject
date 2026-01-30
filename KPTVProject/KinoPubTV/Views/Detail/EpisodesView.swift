@@ -4,7 +4,6 @@
 //
 
 import SwiftUI
-import AVKit
 
 struct EpisodesView: View {
     let season: Season
@@ -138,10 +137,16 @@ struct EpisodeRow: View {
     
     // Use TMDB episode name if available, otherwise fall back to KinoPub
     var episodeTitle: String {
+        // 1. Priority: KinoPub API Title (if exists)
+        if let apiTitle = episode.title?.components(separatedBy: " / ").first, !apiTitle.isEmpty {
+            return apiTitle
+        }
+        // 2. Priority: TMDB Title (if exists)
         if let tmdbName = tmdbEpisode?.name, !tmdbName.isEmpty {
             return tmdbName
         }
-        return episode.displayTitle
+        // 3. Fallback: Generic localized string
+        return "Серия \(episode.number)"
     }
     
     // Use TMDB still if available, otherwise KinoPub thumbnail
@@ -292,92 +297,39 @@ struct EpisodeRow: View {
     }
     
     private func playEpisode() {
-        guard let file = episode.files?.preferredFile,
-              let urlString = file.url.preferredURL,
-              let url = URL(string: urlString) else { return }
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootVC = windowScene.windows.first?.rootViewController else { return }
         
-        // Set metadata for the player info panel
-        var metadata: [AVMetadataItem] = []
-        
-        // Title
-        let titleItem = AVMutableMetadataItem()
-        titleItem.identifier = .commonIdentifierTitle
-        titleItem.value = item.displayTitle as NSString
-        metadata.append(titleItem)
-        
-        // Episode subtitle
-        let subtitleItem = AVMutableMetadataItem()
-        subtitleItem.identifier = .iTunesMetadataTrackSubTitle
-        subtitleItem.value = "S\(seasonNumber)E\(episode.number) - \(episodeTitle)" as NSString
-        metadata.append(subtitleItem)
-        
-        // Only add episode overview, let native player handle audio tracks
-        if let overview = episodeOverview, !overview.isEmpty {
-            let descItem = AVMutableMetadataItem()
-            descItem.identifier = .commonIdentifierDescription
-            descItem.value = overview as NSString
-            metadata.append(descItem)
-        }
-        
-        // Calculate start time for resume
-        let startTime: CMTime? = if let watchTime = episode.watching?.time, watchTime > 0 {
-            CMTime(seconds: Double(watchTime), preferredTimescale: 1)
+        // Create auto-play next provider
+        let autoPlayNext: (() async -> PlaybackData?)? = if let next = nextEpisode {
+            { [item, seasonNumber, next] in
+                guard AppSettings.shared.autoPlayNextEpisode else { return nil }
+                return try? await PlaybackService.shared.prepareNextEpisode(
+                    itemID: item.id,
+                    seasonNumber: seasonNumber,
+                    episodeID: next.id
+                )
+            }
         } else {
             nil
         }
         
-        // Present with audio track selection if multiple tracks available
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootVC = windowScene.windows.first?.rootViewController {
-            AudioTrackPlaybackHelper.playWithAudioSelection(
-                url: url,
-                audioTracks: episode.audios,
-                metadata: metadata,
-                startTime: startTime,
-                itemID: item.id,
-                seasonNumber: seasonNumber,
-                videoID: episode.id,
-                availableFiles: episode.files,
-                currentQuality: file.quality,
-                autoPlayNext: {
-                    guard AppSettings.shared.autoPlayNextEpisode,
-                          let next = nextEpisode,
-                          let nextFile = next.files?.preferredFile,
-                          let nextURLString = nextFile.url.preferredURL,
-                          let nextURL = URL(string: nextURLString) else { return nil }
-                    
-                    var nextMetadata: [AVMetadataItem] = []
-                    let titleItem = AVMutableMetadataItem()
-                    titleItem.identifier = .commonIdentifierTitle
-                    titleItem.value = item.displayTitle as NSString
-                    nextMetadata.append(titleItem)
-                    
-                    let subtitleItem = AVMutableMetadataItem()
-                    subtitleItem.identifier = .iTunesMetadataTrackSubTitle
-                    subtitleItem.value = "S\(seasonNumber)E\(next.number) - \(next.displayTitle)" as NSString
-                    nextMetadata.append(subtitleItem)
-                    
-                    let nextStart: CMTime? = if let watchTime = next.watching?.time, watchTime > 0 {
-                        CMTime(seconds: Double(watchTime), preferredTimescale: 1)
-                    } else {
-                        nil
-                    }
-                    
-                    return PlaybackContext(
-                        url: nextURL,
-                        audioTracks: next.audios,
-                        metadata: nextMetadata,
-                        startTime: nextStart,
-                        itemID: item.id,
-                        seasonNumber: seasonNumber,
-                        videoID: next.id,
-                        availableFiles: next.files,
-                        currentQuality: nextFile.quality
-                    )
-                },
-                from: rootVC
-            )
-        }
+        // Create a temporary Season for the presenter
+        let tempSeason = Season(
+            id: nil,
+            number: seasonNumber,
+            title: nil,
+            episodes: [episode],
+            watching: nil
+        )
+        
+        PlayerPresenter.shared.presentEpisode(
+            item: item,
+            season: tempSeason,
+            episode: episode,
+            autoPlayNext: autoPlayNext,
+            from: rootVC
+        )
     }
     
     private func toggleWatched() {

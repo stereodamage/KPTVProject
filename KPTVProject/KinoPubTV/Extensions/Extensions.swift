@@ -6,6 +6,13 @@
 import Foundation
 import SwiftUI
 
+// MARK: - Locale Extension for Russian
+
+extension Locale {
+    /// Returns a Russian locale for use with AVMediaSelectionOption.displayName(with:)
+    static let russian = Locale(identifier: "ru_RU")
+}
+
 // MARK: - tvOS Font Sizes
 
 extension Font {

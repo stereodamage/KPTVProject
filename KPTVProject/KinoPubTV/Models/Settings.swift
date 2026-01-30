@@ -27,6 +27,7 @@ final class AppSettings {
         static let showRatings = "showRatings"
         static let useTMDBMetadata = "useTMDBMetadata"
         static let topShelfContent = "topShelfContent"
+        static let reduceLoudSounds = "reduceLoudSounds"
     }
     
     // MARK: - Backing Storage (for @Observable tracking)
@@ -41,6 +42,7 @@ final class AppSettings {
     private var _showRatingsOnPosters: Bool
     private var _useTMDBMetadata: Bool
     private var _topShelfContentType: TopShelfContentType
+    private var _reduceLoudSounds: Bool
     
     // MARK: - Properties
     
@@ -127,6 +129,12 @@ final class AppSettings {
         }
     }
     
+    /// Reduce loud sounds (dynamic range compression) for playback
+    nonisolated var reduceLoudSounds: Bool {
+        get { UserDefaults.standard.bool(forKey: Keys.reduceLoudSounds) }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.reduceLoudSounds) }
+    }
+    
     private init() {
         // Load all values from UserDefaults into backing storage
         if let raw = defaults.string(forKey: Keys.streamingType),
@@ -151,6 +159,7 @@ final class AppSettings {
         _playNextSeason = defaults.object(forKey: Keys.playNextSeason) as? Bool ?? true
         _showRatingsOnPosters = defaults.object(forKey: Keys.showRatings) as? Bool ?? true
         _useTMDBMetadata = defaults.object(forKey: Keys.useTMDBMetadata) as? Bool ?? true
+        _reduceLoudSounds = defaults.bool(forKey: Keys.reduceLoudSounds)
         
         if let raw = defaults.string(forKey: Keys.topShelfContent),
            let type = TopShelfContentType(rawValue: raw) {

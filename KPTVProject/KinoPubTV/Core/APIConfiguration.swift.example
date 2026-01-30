@@ -2,10 +2,16 @@
 //  APIConfiguration.swift.example
 //  KinoPubTV
 //
-//  INSTRUCTIONS:
-//  1. Copy this file to APIConfiguration.swift (without .example)
-//  2. Replace the placeholder values with your actual API keys
-//  3. Never commit APIConfiguration.swift to version control
+//  INSTRUCTIONS FOR XCCONFIG APPROACH (RECOMMENDED):
+//  1. Copy Config/Secrets.xcconfig.example to Config/Secrets.xcconfig
+//  2. Fill in your API keys in Secrets.xcconfig
+//  3. In Xcode: Project → Info → Configurations → Set both Debug and Release to use Secrets.xcconfig
+//  4. Build the project - keys will be injected at build time
+//
+//  ALTERNATIVE (Manual file copy):
+//  1. Copy this file to APIConfiguration.swift (remove .example)
+//  2. The current implementation reads from Info.plist first, then environment
+//  3. Never commit APIConfiguration.swift or Secrets.xcconfig to version control
 //
 
 import Foundation
@@ -17,30 +23,53 @@ enum APIConfiguration {
     static let kinoPubClientID = "xbmc"
     
     /// KinoPub OAuth Client Secret
-    /// Get your own from: https://kino.pub/
-    static let kinoPubClientSecret = "YOUR_KINOPUB_CLIENT_SECRET_HERE"
+    /// Loaded from Info.plist → Environment → Empty
+    static let kinoPubClientSecret: String = {
+        // First try Info.plist (set by xcconfig at build time)
+        if let secret = Bundle.main.object(forInfoDictionaryKey: "KINOPUB_CLIENT_SECRET") as? String,
+           !secret.isEmpty, !secret.contains("$(") {
+            return secret
+        }
+        // Fallback to environment variable (for CI/testing)
+        if let envSecret = ProcessInfo.processInfo.environment["KINOPUB_CLIENT_SECRET"],
+           !envSecret.isEmpty {
+            return envSecret
+        }
+        return ""
+    }()
     
     // MARK: - TMDB API
     
     /// The Movie Database (TMDB) API Key
-    /// Get your free API key from: https://www.themoviedb.org/settings/api
-    static let tmdbAPIKey = "YOUR_TMDB_API_KEY_HERE"
+    /// Loaded from Info.plist → Environment → Empty
+    static let tmdbAPIKey: String = {
+        // First try Info.plist (set by xcconfig at build time)
+        if let key = Bundle.main.object(forInfoDictionaryKey: "TMDB_API_KEY") as? String,
+           !key.isEmpty, !key.contains("$(") {
+            return key
+        }
+        // Fallback to environment variable (for CI/testing)
+        if let envKey = ProcessInfo.processInfo.environment["TMDB_API_KEY"],
+           !envKey.isEmpty {
+            return envKey
+        }
+        return ""
+    }()
     
     // MARK: - Helper Methods
     
     /// Check if all required API keys are configured
     static var isConfigured: Bool {
-        return !kinoPubClientSecret.isEmpty && 
-               !kinoPubClientSecret.contains("YOUR_") &&
-               !tmdbAPIKey.isEmpty && 
-               !tmdbAPIKey.contains("YOUR_")
+        return !kinoPubClientSecret.isEmpty && !tmdbAPIKey.isEmpty
     }
     
     /// Print configuration status (for debugging)
     static func printStatus() {
+        #if DEBUG
         print("🔐 API Configuration Status:")
         print("  - KinoPub Client ID: \(kinoPubClientID)")
-        print("  - KinoPub Client Secret: \(kinoPubClientSecret.contains("YOUR_") ? "❌ Not configured" : "✅ Configured")")
-        print("  - TMDB API Key: \(tmdbAPIKey.contains("YOUR_") ? "❌ Not configured" : "✅ Configured")")
+        print("  - KinoPub Client Secret: \(kinoPubClientSecret.isEmpty ? "❌ Not set" : "✅ Configured")")
+        print("  - TMDB API Key: \(tmdbAPIKey.isEmpty ? "❌ Not set" : "✅ Configured")")
+        #endif
     }
 }

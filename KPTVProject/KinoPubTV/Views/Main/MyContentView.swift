@@ -248,7 +248,7 @@ struct ContentGridSection: View {
                 spacing: 50
             ) {
                 ForEach(items) { item in
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 16) {
                         NavigationLink(value: item) {
                             PosterCard(item: item)
                         }
@@ -463,7 +463,7 @@ struct FolderContentView: View {
                     spacing: 50
                 ) {
                     ForEach(items) { item in
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 16) {
                             NavigationLink(value: item) {
                                 PosterCard(item: item)
                             }
@@ -567,7 +567,7 @@ struct HistoryShelf: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 40) {
                     ForEach(items) { historyItem in
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 16) {
                             NavigationLink(value: historyItem.item) {
                                 HistoryCard(historyItem: historyItem)
                             }

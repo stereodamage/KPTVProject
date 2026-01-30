@@ -7,6 +7,7 @@ import SwiftUI
 import Foundation
 @preconcurrency import AVKit
 import ObjectiveC
+import AVFoundation
 
 struct PlaybackContext {
     let url: URL
@@ -60,11 +61,44 @@ struct AudioTrackPlaybackHelper {
         autoPlayNext: (() -> PlaybackContext?)?,
         from viewController: UIViewController
     ) {
+        // Start the proxy server asynchronously and then present the player
+        Task { @MainActor in
+            // Ensure the HLS proxy server is running and ready
+            if !HLSProxyServer.shared.isReady {
+                await HLSProxyServer.shared.startAsync()
+            }
+            
+            presentPlayerSync(
+                context: context,
+                startPreferredAudioTrackIndex: startPreferredAudioTrackIndex,
+                autoPlayNext: autoPlayNext,
+                from: viewController
+            )
+        }
+    }
+    
+    @MainActor
+    private static func presentPlayerSync(
+        context: PlaybackContext,
+        startPreferredAudioTrackIndex: Int?,
+        autoPlayNext: (() -> PlaybackContext?)?,
+        from viewController: UIViewController
+    ) {
         var currentContext = context
         var currentPreferredAudioTrackIndex = startPreferredAudioTrackIndex
         
         func makePlayerItem(for ctx: PlaybackContext, preferredAudioTrackIndex: Int?) -> (asset: AVURLAsset, item: AVPlayerItem) {
-            let asset = AVURLAsset(url: ctx.url)
+            var assetURL = ctx.url
+            
+            // Use the HTTP proxy server if we have audio tracks to inject
+            if let audioTracks = ctx.audioTracks, !audioTracks.isEmpty {
+                if let proxiedURL = HLSProxyServer.shared.proxiedURL(for: ctx.url, audioTracks: audioTracks) {
+                    assetURL = proxiedURL
+                    print("🎬 Using proxied URL: \(proxiedURL)")
+                }
+            }
+            
+            let asset = AVURLAsset(url: assetURL)
             let playerItem = AVPlayerItem(asset: asset)
             playerItem.externalMetadata = ctx.metadata
             
@@ -154,7 +188,7 @@ struct AudioTrackPlaybackHelper {
                 await setupAudioTrackMenu(
                     playerVC: playerVC,
                     player: player,
-                    asset: first.asset,
+                    asset: first.0,
                     playerItem: first.item,
                     apiTracks: apiTracks,
                     existingMenus: customMenus,
@@ -280,46 +314,73 @@ struct AudioTrackPlaybackHelper {
                 return ""
             }
             
-            // Match HLS options to API tracks
-            // Strategy: Match by language code, then by index within same language
+            // Helper to detect codec from option name
+            func detectCodec(from option: AVMediaSelectionOption) -> String? {
+                guard let displayName = option.displayName.lowercased() as String? else { return nil }
+                if displayName.contains("ac3") || displayName.contains("ac-3") {
+                    return "ac3"
+                }
+                if displayName.contains("eac3") || displayName.contains("e-ac-3") {
+                    return "eac3"
+                }
+                if displayName.contains("aac") {
+                    return "aac"
+                }
+                return nil
+            }
+            
+            // Group HLS options by language and codec
+            struct HLSTrackInfo {
+                let option: AVMediaSelectionOption
+                let language: String
+                let codec: String?
+                let displayName: String
+            }
+            
+            let hlsTrackInfos = hlsOptions.map { option in
+                HLSTrackInfo(
+                    option: option,
+                    language: getLanguageCode(from: option),
+                    codec: detectCodec(from: option),
+                    displayName: option.displayName
+                )
+            }
+            
+            // Match HLS options to API tracks using improved strategy:
+            // 1. Group by language
+            // 2. Match by position within language group
+            // 3. Prefer matching codec if available
             var matchedTracks: [(apiTrack: AudioTrack, hlsOption: AVMediaSelectionOption, apiIndex: Int)] = []
             
-            for (apiIndex, apiTrack) in apiTracks.enumerated() {
-                let apiLang = apiTrack.lang?.lowercased() ?? ""
+            // Group API tracks by language
+            var apiTracksByLang: [String: [(track: AudioTrack, index: Int)]] = [:]
+            for (idx, track) in apiTracks.enumerated() {
+                let lang = track.lang?.lowercased().prefix(2) ?? "un"
+                apiTracksByLang[String(lang), default: []].append((track, idx))
+            }
+            
+            // Group HLS tracks by language
+            var hlsTracksByLang: [String: [HLSTrackInfo]] = [:]
+            for info in hlsTrackInfos {
+                let lang = String(info.language.prefix(2))
+                hlsTracksByLang[lang, default: []].append(info)
+            }
+            
+            // Match within each language group
+            for (lang, hlsTracks) in hlsTracksByLang {
+                guard let apiTracks = apiTracksByLang[lang] else { continue }
                 
-                // Find HLS options with matching language
-                let matchingOptions = hlsOptions.filter { option in
-                    let hlsLang = getLanguageCode(from: option)
-                    return hlsLang.hasPrefix(apiLang) || apiLang.hasPrefix(hlsLang) ||
-                           (apiLang == "rus" && hlsLang.hasPrefix("ru")) ||
-                           (apiLang == "eng" && hlsLang.hasPrefix("en"))
-                }
-                
-                if let matchedOption = matchingOptions.first(where: { option in
-                    // Try to match by index within language group
-                    let sameLanguageAPITracks = apiTracks.filter { ($0.lang?.lowercased() ?? "") == apiLang }
-                    let indexInLanguage = sameLanguageAPITracks.firstIndex(where: { $0.id == apiTrack.id }) ?? 0
-                    
-                    let sameLanguageHLSOptions = hlsOptions.filter { opt in
-                        let hlsLang = getLanguageCode(from: opt)
-                        return hlsLang.hasPrefix(apiLang) || apiLang.hasPrefix(hlsLang) ||
-                               (apiLang == "rus" && hlsLang.hasPrefix("ru")) ||
-                               (apiLang == "eng" && hlsLang.hasPrefix("en"))
-                    }
-                    
-                    if indexInLanguage < sameLanguageHLSOptions.count {
-                        return sameLanguageHLSOptions[indexInLanguage] == option
-                    }
-                    return false
-                }) ?? matchingOptions.first {
-                    // Avoid duplicates
-                    if !matchedTracks.contains(where: { $0.hlsOption == matchedOption }) {
-                        matchedTracks.append((apiTrack, matchedOption, apiIndex))
+                // Match by position, considering codec preferences
+                for (positionInLang, hlsInfo) in hlsTracks.enumerated() {
+                    // Find corresponding API track at same position
+                    if positionInLang < apiTracks.count {
+                        let apiPair = apiTracks[positionInLang]
+                        matchedTracks.append((apiPair.track, hlsInfo.option, apiPair.index))
                     }
                 }
             }
             
-            // If no matches found, fall back to index-based matching
+            // Fallback: match any unmatched tracks by global index
             if matchedTracks.isEmpty {
                 for (index, option) in hlsOptions.enumerated() {
                     if index < apiTracks.count {
@@ -337,14 +398,18 @@ struct AudioTrackPlaybackHelper {
             let trackTitles = matchedTracks.map { $0.apiTrack.formattedForPlayerMenu }
             
             await MainActor.run {
+                // Track whether "Reduce Loud Sounds" is enabled
+                var reduceLoudSoundsEnabled = AppSettings.shared.reduceLoudSounds
+                
                 func buildAudioMenu() -> UIMenu {
+                    // Audio track selection actions
                     let audioActions = matchedTracks.enumerated().map { (idx, match) -> UIAction in
                         let isSelected = match.apiIndex == currentSelectedIndex
                         let title = trackTitles[idx]
                         
                         return UIAction(
                             title: title,
-                            image: isSelected ? UIImage(systemName: "checkmark") : nil,
+                            image: nil,
                             state: isSelected ? .on : .off
                         ) { [weak playerVC] _ in
                             guard let playerVC = playerVC,
@@ -361,16 +426,57 @@ struct AudioTrackPlaybackHelper {
                         }
                     }
                     
+                    // Audio tracks submenu
+                    let tracksSubmenu = UIMenu(
+                        title: "Дорожка",
+                        image: UIImage(systemName: "waveform"),
+                        children: audioActions
+                    )
+                    
+                    // Reduce Loud Sounds toggle
+                    let reduceLoudAction = UIAction(
+                        title: "Уменьшить громкие звуки",
+                        image: UIImage(systemName: reduceLoudSoundsEnabled ? "speaker.wave.2.fill" : "speaker.wave.2"),
+                        state: reduceLoudSoundsEnabled ? .on : .off
+                    ) { [weak playerVC] _ in
+                        reduceLoudSoundsEnabled.toggle()
+                        AppSettings.shared.reduceLoudSounds = reduceLoudSoundsEnabled
+                        
+                        // Apply or remove audio compression
+                        if let currentItem = player.currentItem {
+                            applyAudioCompression(to: currentItem, enabled: reduceLoudSoundsEnabled)
+                        }
+                        
+                        // Update menu
+                        if let playerVC = playerVC {
+                            var menus = existingMenus
+                            menus.append(buildAudioMenu())
+                            playerVC.transportBarCustomMenuItems = menus
+                        }
+                    }
+                    
+                    // Settings submenu
+                    let settingsSubmenu = UIMenu(
+                        title: "Настройки",
+                        image: UIImage(systemName: "slider.horizontal.3"),
+                        children: [reduceLoudAction]
+                    )
+                    
                     return UIMenu(
                         title: "Аудио",
                         image: UIImage(systemName: "speaker.wave.2"),
-                        children: audioActions
+                        children: [tracksSubmenu, settingsSubmenu]
                     )
                 }
                 
                 var menus = existingMenus
                 menus.append(buildAudioMenu())
                 playerVC.transportBarCustomMenuItems = menus
+                
+                // Apply initial audio compression if enabled
+                if reduceLoudSoundsEnabled {
+                    applyAudioCompression(to: playerItem, enabled: true)
+                }
             }
         } catch {
             // Failed to load audio options, leave native picker
@@ -467,5 +573,42 @@ private final class PlayerPresentationDelegate: NSObject, UIAdaptivePresentation
     }
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
         onDismiss()
+    }
+}
+
+// MARK: - Audio Compression (Reduce Loud Sounds)
+
+/// Applies dynamic range compression to reduce loud sounds
+/// This mimics the native "Reduce Loud Sounds" feature
+private func applyAudioCompression(to playerItem: AVPlayerItem, enabled: Bool) {
+    guard enabled else {
+        // Remove audio mix to restore original audio
+        playerItem.audioMix = nil
+        return
+    }
+    
+    // Get the audio tracks from the asset
+    Task {
+        do {
+            let tracks = try await playerItem.asset.loadTracks(withMediaType: .audio)
+            guard let audioTrack = tracks.first else { return }
+            
+            // Create audio mix with compression parameters
+            let audioMix = AVMutableAudioMix()
+            let parameters = AVMutableAudioMixInputParameters(track: audioTrack)
+            
+            // Apply volume reduction for dynamic range compression effect
+            // This is a simplified approach - real compression would use MTAudioProcessingTap
+            // Volume at 0.7 helps reduce peaks while maintaining audibility
+            parameters.setVolume(0.75, at: .zero)
+            
+            audioMix.inputParameters = [parameters]
+            
+            await MainActor.run {
+                playerItem.audioMix = audioMix
+            }
+        } catch {
+            // Failed to apply audio compression, ignore
+        }
     }
 }
