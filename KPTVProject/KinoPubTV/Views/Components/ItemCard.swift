@@ -78,6 +78,7 @@ struct ItemCard: View {
 struct ItemMetadata: View {
     let item: Item
     var width: CGFloat
+    var height: CGFloat = 50  // Fixed height to prevent overflow on focus
     
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -106,7 +107,7 @@ struct ItemMetadata: View {
                 }
             }
         }
-        .frame(width: width, alignment: .leading)
+        .frame(width: width, height: height, alignment: .topLeading)
     }
 }
 

@@ -240,6 +240,38 @@ struct AudioTrack: Codable {
     let lang: String?
     let type: AudioType?
     let author: AudioAuthor?
+    
+    /// Returns a modified copy with unique language code for tvOS display
+    func withUniqueLanguage() -> AudioTrack {
+        guard let index = self.index else {
+            return self
+        }
+        
+        // Use IETF private use range qaa-qtz (ISO 639-3 reserved for private use)
+        // These codes are explicitly undefined and won't be localized by tvOS
+        // Map index 1-26 to qaa-qaz
+        let offset = min(index - 1, 25) // 0-25 for qaa-qaz
+        let thirdChar = Character(UnicodeScalar(97 + offset)!) // 'a' + offset
+        let uniqueLang = "qa\(thirdChar)"
+        
+        return AudioTrack(
+            id: id,
+            index: index,
+            codec: codec,
+            lang: uniqueLang,
+            type: type,
+            author: author
+        )
+    }
+    
+    init(id: Int?, index: Int?, codec: String?, lang: String?, type: AudioType?, author: AudioAuthor?) {
+        self.id = id
+        self.index = index
+        self.codec = codec
+        self.lang = lang
+        self.type = type
+        self.author = author
+    }
 }
 
 struct AudioType: Codable {

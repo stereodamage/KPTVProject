@@ -21,7 +21,7 @@ struct ContentShelf: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 40) {
                     ForEach(items) { item in
-                        VStack(alignment: .leading, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 16) {
                             NavigationLink(value: item) {
                                 ItemCard(
                                     item: item,
@@ -59,7 +59,7 @@ struct CollectionShelf: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 40) {
                     ForEach(collections) { collection in
-                        VStack(alignment: .leading, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 16) {
                             NavigationLink {
                                 CollectionDetailView(collection: collection)
                             } label: {
@@ -121,7 +121,7 @@ struct CollectionDetailView: View {
                 spacing: 50
             ) {
                 ForEach(items) { item in
-                    VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 16) {
                         NavigationLink(value: item) {
                             PosterCard(item: item)
                         }

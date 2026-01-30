@@ -95,6 +95,8 @@ iOSInjectionProject/
 Config.xcconfig
 APIKeys.plist
 Secrets.swift
+Config/Secrets.xcconfig
+!Config/Secrets.xcconfig.example
 
 # macOS
 .DS_Store
