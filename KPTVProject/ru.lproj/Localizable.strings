@@ -1,0 +1,22 @@
+/* 
+  Localizable.strings (Russian)
+  KPTVProject
+  
+  Russian localization - this is the primary/default language for the app.
+*/
+
+// General
+"OK" = "ОК";
+"Cancel" = "Отмена";
+"Done" = "Готово";
+"Error" = "Ошибка";
+"Loading" = "Загрузка";
+"Search" = "Поиск";
+"Settings" = "Настройки";
+
+// Player
+"Audio" = "Аудио";
+"Track" = "Дорожка";
+"Quality" = "Качество";
+"Reduce Loud Sounds" = "Уменьшить громкие звуки";
+"Subtitles" = "Субтитры";

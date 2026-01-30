@@ -202,6 +202,7 @@ actor TMDBService {
     private var episodeCache: [String: CachedTMDBEpisode] = [:] // "tmdbId-season-episode" -> episode data
     private var seasonCache: [String: TMDBSeasonDetail] = [:] // "tmdbId-season" -> season detail
     private var personCache: [String: URL] = [:] // Name -> Profile URL
+    private var backdropCache: [Int: URL] = [:] // Item ID -> Backdrop URL
     
     // In-flight request deduplication
     private var pendingShowLookups: [String: Task<Int?, Error>] = [:]
@@ -376,7 +377,13 @@ actor TMDBService {
     }
     
     /// Get backdrop URL for an item by searching TMDB
+    /// Get backdrop URL for an item by searching TMDB
     func getBackdropURL(for item: Item) async -> URL? {
+        // Check cache first
+        if let cachedURL = backdropCache[item.id] {
+            return cachedURL
+        }
+        
         // Try TMDB search if enabled
         let useTMDB = await MainActor.run { AppSettings.shared.useTMDBMetadata }
         guard useTMDB else {
@@ -384,21 +391,34 @@ actor TMDBService {
             return URL.secure(string: item.posters?.wide)
         }
         
+        var backdropURL: URL?
+        
         // Try IMDb ID first
         if let imdbId = item.imdb,
            let tmdbId = try? await findByIMDbId(String(imdbId)) {
+            // If we found it via ID, we might have cached the details which contain the backdrop
+            if let show = showDetailCache[tmdbId] {
+                backdropURL = show.backdropURL
+            } else {
+                let show = item.isSerial 
+                    ? try? await searchTVShow(name: item.displayTitle, year: item.year)
+                    : try? await searchMovie(name: item.displayTitle, year: item.year)
+                backdropURL = show?.backdropURL
+            }
+        } else {
+            // Fallback to name search
             let show = item.isSerial 
                 ? try? await searchTVShow(name: item.displayTitle, year: item.year)
                 : try? await searchMovie(name: item.displayTitle, year: item.year)
-            return show?.backdropURL ?? URL.secure(string: item.posters?.wide)
+            backdropURL = show?.backdropURL
         }
         
-        // Fallback to name search
-        let show = item.isSerial 
-            ? try? await searchTVShow(name: item.displayTitle, year: item.year)
-            : try? await searchMovie(name: item.displayTitle, year: item.year)
-        
-        return show?.backdropURL ?? URL.secure(string: item.posters?.wide)
+        // Cache and return (fallback to wide poster if nil)
+        let finalURL = backdropURL ?? URL.secure(string: item.posters?.wide)
+        if let url = finalURL {
+            backdropCache[item.id] = url
+        }
+        return finalURL
     }
     
     /// Search for person by name and return profile image URL
@@ -544,8 +564,12 @@ actor TMDBService {
     
     func clearCache() {
         showCache.removeAll()
+        titleCache.removeAll()
+        showDetailCache.removeAll()
         episodeCache.removeAll()
         seasonCache.removeAll()
+        personCache.removeAll()
+        backdropCache.removeAll()
     }
 }
 

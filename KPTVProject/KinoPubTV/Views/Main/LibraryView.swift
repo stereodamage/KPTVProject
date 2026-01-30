@@ -168,7 +168,7 @@ struct LibraryView: View {
                 spacing: 50
             ) {
                 ForEach(viewModel.items) { item in
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 16) {
                         NavigationLink(value: item) {
                             PosterCard(item: item)
                         }

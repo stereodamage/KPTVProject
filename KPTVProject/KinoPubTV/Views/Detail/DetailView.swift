@@ -15,6 +15,18 @@ struct DetailView: View {
     @State private var backdropURL: URL?
     @State private var shouldLoadTMDB = false
     
+    @FocusState private var focusedField: FocusField?
+    
+    enum FocusField: Hashable {
+        case watchButton
+        case trailerButton
+        case bookmarkButton
+        case subscribeButton
+        case season
+        case director
+        case actor
+    }
+    
     var body: some View {
         ScrollView {
             if let item = viewModel.item {
@@ -116,56 +128,51 @@ struct DetailView: View {
                                 
                                 // Action Buttons
                                 HStack(spacing: 20) {
-                                    Button {
-                                        playContent()
-                                    } label: {
+                                    Button(action: playContent) {
                                         Label("Смотреть", systemImage: "play.fill")
                                     }
+                                    .focused($focusedField, equals: .watchButton)
                                     .buttonStyle(.borderedProminent)
                                     .tint(Color(white: 0.85))
                                     .foregroundStyle(.black)
                                     
                                     if let trailer = item.trailer?.url, !trailer.isEmpty {
-                                        Button {
-                                            playTrailer(url: trailer)
-                                        } label: {
+                                        Button(action: { playTrailer(url: trailer) }) {
                                             Label("Трейлер", systemImage: "film")
                                         }
+                                        .focused($focusedField, equals: .trailerButton)
                                         .buttonStyle(.borderedProminent)
                                         .tint(Color(white: 0.85))
                                         .foregroundStyle(.black)
                                     }
                                     
-                                    Button {
-                                        showingBookmarks = true
-                                    } label: {
+                                    Button(action: { showingBookmarks = true }) {
                                         Label("В закладки", systemImage: "plus")
                                     }
+                                    .focused($focusedField, equals: .bookmarkButton)
                                     .buttonStyle(.borderedProminent)
                                     .tint(Color(white: 0.85))
                                     .foregroundStyle(.black)
                                     
                                     if item.isSerial {
-                                        Button {
-                                            Task {
-                                                await viewModel.toggleWatchlist()
-                                            }
-                                        } label: {
-                                            Label(
-                                                item.subscribed == true ? "Не буду смотреть" : "Буду смотреть",
-                                                systemImage: item.subscribed == true ? "star.fill" : "star"
-                                            )
+                                        let isSubscribed = item.subscribed == true
+                                        Button(action: { Task { await viewModel.toggleWatchlist() } }) {
+                                            Label(isSubscribed ? "Не буду смотреть" : "Буду смотреть",
+                                                  systemImage: isSubscribed ? "star.fill" : "star")
                                         }
+                                        .focused($focusedField, equals: .subscribeButton)
                                         .buttonStyle(.borderedProminent)
                                         .tint(Color(white: 0.85))
                                         .foregroundStyle(.black)
                                     }
                                 }
+                                .focusSection()
                             }
                             
                             Spacer()
                         }
                         .padding(50)
+                        .padding(.bottom, 50) // Add extra bottom padding to separate from seasons
                     }
                     
                     // Description
@@ -193,6 +200,7 @@ struct DetailView: View {
                                 }
                             }
                         )
+                        .padding(.top, 50) // Add vertical space to separate from buttons
                     }
                     
                     // Videos (for movies/multi)
@@ -208,9 +216,13 @@ struct DetailView: View {
                     
                     // Cast & Crew
                     if let cast = item.cast, !cast.isEmpty {
-                        CastSection(cast: cast, director: item.director) { personName in
+                        CastSection(
+                            cast: cast,
+                            director: item.director
+                        ) { personName in
                             selectedPerson = personName
                         }
+                        .padding(.top, 50) // Add vertical space to separate from seasons
                     }
                 }
             }
@@ -227,7 +239,7 @@ struct DetailView: View {
                 PersonSearchView(personName: person)
             }
         }
-        .overlay {
+        .overlay(alignment: .center) {
             if viewModel.isLoading && viewModel.item == nil {
                 VStack(spacing: 20) {
                     ProgressView()
@@ -272,108 +284,43 @@ struct DetailView: View {
     private func playContent() {
         guard let item = viewModel.item else { return }
         
-        var videoURL: String?
-        var audios: [AudioTrack]?
-        var episodeTitle: String?
-        var playbackSeasonNumber: Int?
-        var playbackVideoID: Int?
-        var startTime: CMTime?
-        var availableFiles: [VideoFile]?
-        var currentQuality: String?
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootVC = windowScene.windows.first?.rootViewController else { return }
         
         if item.isSerial {
             // Find first unwatched episode
             if let seasons = item.seasons {
                 for season in seasons {
-                    if let episode = season.episodes.first(where: { ($0.watched ?? 0) < 1 }),
-                       let file = episode.files?.preferredFile,
-                       let url = file.url.preferredURL {
-                        videoURL = url
-                        audios = episode.audios
-                        episodeTitle = episode.displayTitle
-                        playbackSeasonNumber = season.number
-                        playbackVideoID = episode.id
-                        availableFiles = episode.files
-                        currentQuality = file.quality
-                        if let watchTime = episode.watching?.time, watchTime > 0 {
-                            startTime = CMTime(seconds: Double(watchTime), preferredTimescale: 1)
-                        }
-                        break
+                    if let episode = season.episodes.first(where: { ($0.watched ?? 0) < 1 }) {
+                        PlayerPresenter.shared.presentEpisode(
+                            item: item,
+                            season: season,
+                            episode: episode,
+                            from: rootVC
+                        )
+                        return
                     }
                 }
                 // Fallback to first episode
-                if videoURL == nil,
-                   let season = seasons.first,
-                   let episode = season.episodes.first,
-                   let file = episode.files?.preferredFile,
-                   let url = file.url.preferredURL {
-                    videoURL = url
-                    audios = episode.audios
-                    episodeTitle = episode.displayTitle
-                    playbackSeasonNumber = season.number
-                    playbackVideoID = episode.id
-                    availableFiles = episode.files
-                    currentQuality = file.quality
-                    if let watchTime = episode.watching?.time, watchTime > 0 {
-                        startTime = CMTime(seconds: Double(watchTime), preferredTimescale: 1)
-                    }
+                if let season = seasons.first,
+                   let episode = season.episodes.first {
+                    PlayerPresenter.shared.presentEpisode(
+                        item: item,
+                        season: season,
+                        episode: episode,
+                        from: rootVC
+                    )
                 }
             }
         } else {
             // Movie
-            if let video = item.videos?.first,
-               let file = video.files?.preferredFile,
-               let url = file.url.preferredURL {
-                videoURL = url
-                audios = video.audios
-                playbackVideoID = video.id
-                availableFiles = video.files
-                currentQuality = file.quality
-                if let watchTime = video.watching?.time, watchTime > 0 {
-                    startTime = CMTime(seconds: Double(watchTime), preferredTimescale: 1)
-                }
+            if let video = item.videos?.first {
+                PlayerPresenter.shared.presentVideo(
+                    item: item,
+                    video: video,
+                    from: rootVC
+                )
             }
-        }
-        
-        guard let urlString = videoURL, let url = URL(string: urlString) else { return }
-        
-        // Set metadata for the player info panel
-        var metadata: [AVMetadataItem] = []
-        
-        let titleItem = AVMutableMetadataItem()
-        titleItem.identifier = .commonIdentifierTitle
-        titleItem.value = item.displayTitle as NSString
-        metadata.append(titleItem)
-        
-        if let epTitle = episodeTitle {
-            let subtitleItem = AVMutableMetadataItem()
-            subtitleItem.identifier = .iTunesMetadataTrackSubTitle
-            subtitleItem.value = epTitle as NSString
-            metadata.append(subtitleItem)
-        }
-        
-        // Only add plot description, let native player handle audio tracks
-        if let plot = item.plot, !plot.isEmpty {
-            let descItem = AVMutableMetadataItem()
-            descItem.identifier = .commonIdentifierDescription
-            descItem.value = plot as NSString
-            metadata.append(descItem)
-        }
-        
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootVC = windowScene.windows.first?.rootViewController {
-            AudioTrackPlaybackHelper.playWithAudioSelection(
-                url: url,
-                audioTracks: audios,
-                metadata: metadata,
-                startTime: startTime,
-                itemID: item.id,
-                seasonNumber: playbackSeasonNumber,
-                videoID: playbackVideoID,
-                availableFiles: availableFiles,
-                currentQuality: currentQuality,
-                from: rootVC
-            )
         }
     }
     
@@ -486,7 +433,7 @@ struct SeasonsSection: View {
             
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 30) {
-                    ForEach(seasons) { season in
+                    ForEach(Array(seasons.enumerated()), id: \.element.id) { index, season in
                         VStack(alignment: .leading, spacing: 24) {
                             NavigationLink {
                                 EpisodesView(season: season, item: item)
@@ -539,6 +486,7 @@ struct SeasonsSection: View {
                 }
                 .padding(.horizontal, 50)
                 .padding(.vertical, 40)
+                .focusSection()
             }
         }
         .padding(.vertical, 30)
@@ -617,6 +565,7 @@ struct VideosSection: View {
                 }
                 .padding(.horizontal, 50)
                 .padding(.vertical, 40)
+                .focusSection()
             }
         }
         .padding(.vertical, 30)
@@ -669,51 +618,14 @@ struct VideoCard: View {
     }
     
     private func playVideo() {
-        guard let file = video.files?.preferredFile,
-              let urlString = file.url.preferredURL,
-              let url = URL(string: urlString) else { return }
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let rootVC = windowScene.windows.first?.rootViewController else { return }
         
-        // Set metadata
-        var metadata: [AVMetadataItem] = []
-        
-        let titleItem = AVMutableMetadataItem()
-        titleItem.identifier = .commonIdentifierTitle
-        titleItem.value = item.displayTitle as NSString
-        metadata.append(titleItem)
-        
-        let subtitleItem = AVMutableMetadataItem()
-        subtitleItem.identifier = .iTunesMetadataTrackSubTitle
-        subtitleItem.value = video.displayTitle as NSString
-        metadata.append(subtitleItem)
-        
-        // Only add plot description, let native player handle audio tracks
-        if let plot = item.plot, !plot.isEmpty {
-            let descItem = AVMutableMetadataItem()
-            descItem.identifier = .commonIdentifierDescription
-            descItem.value = plot as NSString
-            metadata.append(descItem)
-        }
-        
-        let startTime: CMTime? = if let watchTime = video.watching?.time, watchTime > 0 {
-            CMTime(seconds: Double(watchTime), preferredTimescale: 1)
-        } else {
-            nil
-        }
-        
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootVC = windowScene.windows.first?.rootViewController {
-            AudioTrackPlaybackHelper.playWithAudioSelection(
-                url: url,
-                audioTracks: video.audios,
-                metadata: metadata,
-                startTime: startTime,
-                itemID: item.id,
-                videoID: video.id,
-                availableFiles: video.files,
-                currentQuality: file.quality,
-                from: rootVC
-            )
-        }
+        PlayerPresenter.shared.presentVideo(
+            item: item,
+            video: video,
+            from: rootVC
+        )
     }
 }
 
@@ -731,7 +643,7 @@ struct CastSection: View {
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 50) {
             Text("Актёры и съёмочная группа")
                 .font(.title2)
                 .fontWeight(.bold)
@@ -744,7 +656,7 @@ struct CastSection: View {
                     
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 30) {
-                            ForEach(directorList, id: \.self) { person in
+                            ForEach(Array(directorList.enumerated()), id: \.element) { index, person in
                                 VStack(spacing: 12) {
                                     PersonButton(name: person) {
                                         onPersonTap(person)
@@ -760,6 +672,7 @@ struct CastSection: View {
                             }
                         }
                         .padding(.vertical, 20)
+                        .focusSection()
                     }
                 }
             }
@@ -771,7 +684,7 @@ struct CastSection: View {
                 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 30) {
-                        ForEach(castList.prefix(15), id: \.self) { person in
+                        ForEach(Array(castList.prefix(15).enumerated()), id: \.element) { index, person in
                             VStack(spacing: 12) {
                                 PersonButton(name: person) {
                                     onPersonTap(person)
@@ -787,6 +700,7 @@ struct CastSection: View {
                         }
                     }
                     .padding(.vertical, 20)
+                    .focusSection()
                 }
             }
         }
@@ -808,13 +722,13 @@ struct PersonButton: View {
                             .resizable()
                             .aspectRatio(contentMode: .fill)
                     } placeholder: {
-                        Circle()
+                        RoundedRectangle(cornerRadius: 12)
                             .fill(Color(white: 0.2))
                     }
                     .frame(width: 120, height: 120)
-                    .clipShape(Circle())
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                 } else {
-                    Circle()
+                    RoundedRectangle(cornerRadius: 12)
                         .fill(Color(white: 0.2))
                         .frame(width: 120, height: 120)
                     

@@ -40,8 +40,7 @@ struct KPTVProjectApp: App {
     }
     
     private func setupLocale() {
-        // Ensure app uses system locale for API requests
-        // This affects how the API returns audio track descriptions
+        // App is Russian-oriented, locale settings are in Info.plist
         if let preferredLanguage = Locale.preferredLanguages.first {
             print("🌍 App locale: \(preferredLanguage)")
         }
