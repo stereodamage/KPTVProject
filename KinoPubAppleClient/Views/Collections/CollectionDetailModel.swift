@@ -39,7 +39,7 @@ enum MediaItemsSort: CaseIterable, Identifiable {
     case .year:
       return items.sorted { $0.year > $1.year }
     case .rating:
-      return items.sorted { ($0.kinopoiskRating ?? $0.imdbRating ?? 0) > ($1.kinopoiskRating ?? $1.imdbRating ?? 0) }
+      return items.sorted { ($0.preferredRating?.value ?? 0) > ($1.preferredRating?.value ?? 0) }
     }
   }
 }

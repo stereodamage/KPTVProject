@@ -50,13 +50,13 @@ struct TVMainView: View {
       }
       TabSection("Library".localized) {
         Tab("Bookmarks".localized, systemImage: "bookmark", value: TVTab.bookmarks) {
-          TVStack { TVComingSoon() }
+          TVStack { TVBookmarksView() }
         }
         Tab("History".localized, systemImage: "clock.arrow.circlepath", value: TVTab.history) {
           TVStack { TVHistoryView() }
         }
         Tab("Collections".localized, systemImage: "square.stack", value: TVTab.collections) {
-          TVStack { TVComingSoon() }
+          TVStack { TVCollectionsView() }
         }
       }
       Tab("Sport".localized, systemImage: "sportscourt", value: TVTab.sport) {
@@ -73,17 +73,19 @@ struct TVMainView: View {
 /// A tab's navigation stack with every `Route` destination registered.
 struct TVStack<Root: View>: View {
   @ViewBuilder var root: () -> Root
+  @State private var stack = TVStackModel()
 
   var body: some View {
-    NavigationStack {
+    @Bindable var stack = stack
+    NavigationStack(path: $stack.path) {
       root()
-        .navigationDestination(for: Route.self) { TVRouteDestination(route: $0) }
+        .navigationDestination(for: Route.self) { route in
+          // Set on each destination: values set on the NavigationStack do not reach pushed screens.
+          TVRouteDestination(route: route)
+            .environment(\.tvStackLevel, (stack.path.lastIndex(of: route) ?? stack.path.count - 1) + 1)
+            .environment(stack)
+        }
     }
-  }
-}
-
-struct TVComingSoon: View {
-  var body: some View {
-    StatusView(systemImage: "hammer", title: "Coming soon".localized)
+    .environment(stack)
   }
 }

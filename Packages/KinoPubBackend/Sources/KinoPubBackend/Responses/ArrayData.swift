@@ -10,7 +10,11 @@ import Foundation
 public struct ArrayData<T: Codable>: Codable {
   
   public var items: [T]
-  
+
+  public init(items: [T]) {
+    self.items = items
+  }
+
   public static func mock(data: [T]) -> ArrayData {
     return ArrayData(items: data)
   }

@@ -36,6 +36,8 @@ enum Route: Hashable {
   /// A "see all" grid of people surfaced from a search (Cast & Crew): (people, title). Tapping a
   /// person opens their filmography, like the Cast & Crew on a film page / Apple TV.
   case castCrew([SearchPerson], String)
+  /// A film's full Cast & Crew grouped by role: (film title, groups).
+  case credits(String, [CreditGroup])
 
   func hash(into hasher: inout Hasher) {
     switch self {
@@ -65,10 +67,27 @@ enum Route: Hashable {
       hasher.combine(11); hasher.combine(items); hasher.combine(title)
     case .castCrew(let people, let title):
       hasher.combine(12); hasher.combine(people); hasher.combine(title)
+    case .credits(let title, let groups):
+      hasher.combine(13); hasher.combine(title); hasher.combine(groups)
     }
   }
 
   static func == (lhs: Route, rhs: Route) -> Bool {
-    lhs.hashValue == rhs.hashValue
+    switch (lhs, rhs) {
+    case let (.details(a), .details(b)): return a == b
+    case let (.detailsByID(a), .detailsByID(b)): return a == b
+    case let (.seasons(a), .seasons(b)): return a == b
+    case let (.season(a), .season(b)): return a == b
+    case let (.player(a), .player(b)), let (.trailerPlayer(a), .trailerPlayer(b)): return a.id == b.id
+    case let (.filteredCatalog(a, t1), .filteredCatalog(b, t2)): return a == b && t1 == t2
+    case let (.personSearch(q1, f1, t1), .personSearch(q2, f2, t2)): return q1 == q2 && f1 == f2 && t1 == t2
+    case let (.genre(a, t1), .genre(b, t2)): return a == b && t1 == t2
+    case let (.bookmark(a), .bookmark(b)): return a == b
+    case let (.collection(a), .collection(b)): return a == b
+    case let (.mediaList(a, t1), .mediaList(b, t2)): return a == b && t1 == t2
+    case let (.castCrew(a, t1), .castCrew(b, t2)): return a == b && t1 == t2
+    case let (.credits(t1, a), .credits(t2, b)): return t1 == t2 && a == b
+    default: return false
+    }
   }
 }

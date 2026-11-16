@@ -10,9 +10,11 @@ import Foundation
 public struct BookmarkItemsRequest: Endpoint {
 
   private var id: String
+  private var page: Int?
 
-  public init(id: String) {
+  public init(id: String, page: Int? = nil) {
     self.id = id
+    self.page = page
   }
 
   public var path: String {
@@ -24,7 +26,7 @@ public struct BookmarkItemsRequest: Endpoint {
   }
 
   public var parameters: [String: Any]? {
-    nil
+    page.map { ["page": "\($0)"] }
   }
 
   public var headers: [String: String]? {

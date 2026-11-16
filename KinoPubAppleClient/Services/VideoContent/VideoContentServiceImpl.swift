@@ -96,10 +96,17 @@ final class VideoContentServiceImpl: VideoContentService {
   }
   
   func fetchBookmarkItems(id: String) async throws -> ArrayData<MediaItem> {
-    let request = BookmarkItemsRequest(id: id)
-    let response = try await apiClient.performRequest(with: request,
-                                                      decodingType: ArrayData<MediaItem>.self)
-    return response
+    var page = try await apiClient.performRequest(with: BookmarkItemsRequest(id: id),
+                                                  decodingType: PagedItemsData<MediaItem>.self)
+    var items = page.items
+    var pagesLeft = 19
+    while page.hasNextPage, pagesLeft > 0, let current = page.pagination?.current {
+      page = try await apiClient.performRequest(with: BookmarkItemsRequest(id: id, page: current + 1),
+                                                decodingType: PagedItemsData<MediaItem>.self)
+      items += page.items
+      pagesLeft -= 1
+    }
+    return ArrayData(items: items)
   }
 
   func fetchHistory(page: Int?) async throws -> HistoryData {

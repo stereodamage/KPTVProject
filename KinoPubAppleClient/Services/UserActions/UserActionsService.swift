@@ -13,6 +13,7 @@ protocol UserActionsService {
   func toggleWatching(id: Int, video: Int?, season: Int?) async throws
   func toggleWatchlist(id: Int) async throws
   func toggleBookmark(itemId: Int, folderId: Int) async throws
+  func removeBookmarkItem(itemId: Int, folderId: Int) async throws
   func fetchBookmarks() async throws -> [Bookmark]
   func createBookmarkFolder(title: String) async throws -> Int
   func removeBookmarkFolder(id: Int) async throws
@@ -44,6 +45,10 @@ struct UserActionsServiceMock: UserActionsService {
   }
 
   func toggleBookmark(itemId: Int, folderId: Int) async throws {
+
+  }
+
+  func removeBookmarkItem(itemId: Int, folderId: Int) async throws {
 
   }
 

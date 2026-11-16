@@ -16,6 +16,8 @@ struct TVDetailView: View {
   @State private var showVersions = false
   @State private var chosenVersion: FilmVersion?
   @State private var pickedVersion: FilmVersion?
+  @State private var creatingFolder = false
+  @State private var newFolderName = ""
 
   init(model: @autoclosure @escaping () -> MediaItemModel) {
     _model = StateObject(wrappedValue: model())
@@ -189,8 +191,9 @@ struct TVDetailView: View {
 
   private var bookmarksMenu: some View {
     Menu {
-      if library.bookmarkFolders.isEmpty {
-        Text("No bookmark folders".localized)
+      Button("New folder…".localized, systemImage: "folder.badge.plus") {
+        newFolderName = ""
+        creatingFolder = true
       }
       ForEach(library.bookmarkFolders, id: \.id) { folder in
         Button {
@@ -209,6 +212,11 @@ struct TVDetailView: View {
     }
     .labelStyle(.iconOnly)
     .task { model.loadBookmarkFolders() }
+    .alert("New folder".localized, isPresented: $creatingFolder) {
+      TextField("Folder name".localized, text: $newFolderName)
+      Button("Create".localized) { model.createFolderAndAdd(named: newFolderName) }
+      Button("Cancel".localized, role: .cancel) {}
+    }
   }
 
   /// What the main button plays: the series' continue/first episode, or the movie.
@@ -244,32 +252,22 @@ struct TVDetailView: View {
 
   @ViewBuilder
   private var castShelf: some View {
-    let people = castPeople
-    if !people.isEmpty {
-      Shelf(title: "Cast & Crew".localized) {
-        ForEach(people) { person in
-          PersonLockup(person: person).frame(width: 220)
+    // Shown only once the extras settled, from one source, so the row never swaps cards under focus.
+    if model.extrasLoaded {
+      let groups = creditGroups
+      if !groups.isEmpty {
+        Shelf(title: "Cast & Crew".localized) {
+          ForEach(Credits.row(groups, directorRole: "Director".localized)) { PersonLockup(person: $0) }
+          PeopleSeeAllLockup(value: .credits(item.localizedTitle, groups))
         }
       }
     }
   }
 
-  private var castPeople: [TVPerson] {
-    if !model.staff.isEmpty {
-      return model.staff.prefix(30).map {
-        TVPerson(id: "\($0.staffId)", name: $0.displayName, role: $0.description ?? $0.professionText,
-                 photo: $0.posterUrl, searchField: $0.professionKey == "DIRECTOR" ? "director" : "cast")
-      }
-    }
-    let directors = model.directorNames.map {
-      TVPerson(id: "d-\($0)", name: $0, role: "Director".localized,
-               photo: ActorImageProvider.photoURLString(for: $0), searchField: "director")
-    }
-    let cast = model.castNames.prefix(25).map {
-      TVPerson(id: "c-\($0)", name: $0, role: nil,
-               photo: ActorImageProvider.photoURLString(for: $0), searchField: "cast")
-    }
-    return directors + cast
+  private var creditGroups: [CreditGroup] {
+    if !model.staff.isEmpty { return Credits.groups(staff: model.staff) }
+    return Credits.groups(directors: model.directorNames, cast: model.castNames,
+                          photo: ActorImageProvider.photoURLString(for:))
   }
 
   @ViewBuilder
@@ -359,41 +357,6 @@ private struct TVEpisodesSection: View {
 }
 
 // MARK: - Pieces
-
-struct TVPerson: Identifiable {
-  let id: String
-  let name: String
-  let role: String?
-  let photo: String?
-  let searchField: String
-}
-
-private struct PersonLockup: View {
-  let person: TVPerson
-
-  var body: some View {
-    NavigationLink(value: Route.personSearch(person.name, person.searchField, person.name)) {
-      VStack(spacing: 16) {
-        CachedAsyncImage(url: person.photo.flatMap(URL.init(string:))) { image in
-          image.resizable().scaledToFill()
-        } placeholder: {
-          Image(systemName: "person.fill").font(.system(size: 70)).foregroundStyle(.white.opacity(0.3))
-        }
-        .frame(width: 200, height: 200)
-        .background(Color.white.opacity(0.08))
-        .clipShape(Circle())
-        .hoverEffect(.highlight)
-        VStack(spacing: 4) {
-          Text(person.name).font(.caption).lineLimit(1)
-          if let role = person.role, !role.isEmpty {
-            Text(role).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-          }
-        }
-      }
-    }
-    .buttonStyle(.borderless)
-  }
-}
 
 private struct FactCard: View {
   let text: String

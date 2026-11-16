@@ -45,6 +45,7 @@ private struct TVSearchContent: View {
           StatusView(systemImage: "magnifyingglass", title: "Nothing found".localized)
         } else {
           resultShelf("Titles".localized, model.titleResults)
+          peopleShelf(model.people)
           resultShelf("With actor".localized, model.castResults)
           resultShelf("By director".localized, model.directorResults)
         }
@@ -52,6 +53,17 @@ private struct TVSearchContent: View {
     }
     .scrollClipDisabled()
     .searchable(text: $model.query, prompt: "Movies, series, people".localized)
+  }
+
+  /// `people` is computed (it ranks names over the results), so the caller reads it once.
+  @ViewBuilder
+  private func peopleShelf(_ people: [SearchPerson]) -> some View {
+    if !people.isEmpty {
+      Shelf(title: "\("People".localized) · \(people.count)") {
+        ForEach(people.prefix(12)) { PersonLockup(person: $0.creditPerson) }
+        PeopleSeeAllLockup(value: .castCrew(people, "Cast & Crew".localized))
+      }
+    }
   }
 
   @ViewBuilder

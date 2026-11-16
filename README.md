@@ -1,5 +1,9 @@
 # KPTV — kino.pub for Apple TV
 
+![Platform](https://img.shields.io/badge/platform-tvOS%2018%2B-lightgrey.svg)
+![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)
+![Xcode](https://img.shields.io/badge/Xcode-26%2B-blue.svg)
+
 A native SwiftUI client for [kino.pub](https://kino.pub) on **tvOS 18+**, built to the tvOS Human Interface
 Guidelines: sidebar navigation, focus-driven shelves and grids, and the system player. The UI is in Russian.
 

@@ -7060,6 +7060,22 @@
         }
       }
     },
+    "Delete folder?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete folder?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Удалить папку?"
+          }
+        }
+      }
+    },
     "Description" : {
       "localizations" : {
         "az" : {
@@ -12097,6 +12113,22 @@
         }
       }
     },
+    "IMDb" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IMDb"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "IMDb"
+          }
+        }
+      }
+    },
     "IMDB Rating" : {
       "localizations" : {
         "az" : {
@@ -12715,6 +12747,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "kino.pub применит изменения в течение минуты."
+          }
+        }
+      }
+    },
+    "Kinopoisk" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kinopoisk"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "КиноПоиск"
           }
         }
       }
@@ -19255,6 +19303,22 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "Boshqalar"
+          }
+        }
+      }
+    },
+    "People" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "People"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Люди"
           }
         }
       }
