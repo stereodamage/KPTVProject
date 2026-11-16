@@ -55,6 +55,8 @@ class CollectionsModel: ObservableObject {
 
   private var pagination: Pagination?
   private var isLoadingMore: Bool = false
+  /// Bumped on each first-page load, so replies for an older sort or list are dropped.
+  private var generation = 0
 
   init(collectionsService: CollectionsService, authState: AuthState, errorHandler: ErrorHandler) {
     self.collectionsService = collectionsService
@@ -71,15 +73,19 @@ class CollectionsModel: ObservableObject {
       return
     }
 
+    generation += 1
+    let current = generation
     isLoading = true
     pagination = nil
     collectionItems = [:]
     do {
       let data = try await collectionsService.fetchCollections(page: nil, sort: selectedSort.apiValue)
+      guard current == generation else { return }
       collections = data.collections
       pagination = data.pagination
       loadItems(for: data.collections)
     } catch {
+      guard current == generation else { return }
       Logger.app.debug("fetch collections error: \(error)")
       errorHandler.setError(error)
     }
@@ -89,6 +95,7 @@ class CollectionsModel: ObservableObject {
   /// Loads each collection's preview items in parallel (best-effort) so they fill in as they arrive,
   /// each shelf showing placeholders until then — exactly like the Bookmarks folders.
   private func loadItems(for collections: [Collection]) {
+#if !os(tvOS)
     let service = collectionsService
     Task {
       await withTaskGroup(of: (Int, [MediaItem]).self) { group in
@@ -103,6 +110,7 @@ class CollectionsModel: ObservableObject {
         }
       }
     }
+#endif
   }
 
   /// Loads the next page when the user scrolls near the end of the grid.
@@ -129,8 +137,10 @@ class CollectionsModel: ObservableObject {
     defer { isLoadingMore = false }
 
     let nextPage = pagination.current + 1
+    let current = generation
     do {
       let data = try await collectionsService.fetchCollections(page: nextPage, sort: selectedSort.apiValue)
+      guard current == generation else { return }
       collections.append(contentsOf: data.collections)
       self.pagination = data.pagination
       loadItems(for: data.collections)

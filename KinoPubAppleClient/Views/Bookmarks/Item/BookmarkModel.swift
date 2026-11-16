@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 import KinoPubBackend
 import KinoPubUI
 import OSLog
@@ -55,6 +56,22 @@ class BookmarkModel: ObservableObject {
     self.bookmark = bookmark
     self.title = bookmark.title
     self.errorHandler = errorHandler
+    AppContext.shared.libraryState.bookmarkFolderChanged
+      .filter { [id = bookmark.id] in $0 == id }
+      .receive(on: RunLoop.main)
+      .sink { [weak self] _ in self?.needsRefresh = true }
+      .store(in: &bag)
+  }
+
+  private var bag = Set<AnyCancellable>()
+  /// Set when the folder changed elsewhere; the view then calls `loadFresh()` (see `TVBookmarkFolderPage`).
+  @Published public var needsRefresh = false
+
+  /// Fetches the folder without touching `items`, so the view can move focus off a poster that is about
+  /// to leave before it applies the list: tvOS loses focus entirely if the focused view disappears.
+  func loadFresh() async -> [MediaItem]? {
+    needsRefresh = false
+    return try? await contentService.fetchBookmarkItems(id: "\(bookmark.id)").items
   }
 
   /// Items rendered by the view, sorted client-side according to `sort`.
@@ -75,6 +92,7 @@ class BookmarkModel: ObservableObject {
   }
 
   func fetchItems() async {
+    needsRefresh = false
     do {
       items = try await contentService.fetchBookmarkItems(id: "\(bookmark.id)").items
     } catch {
@@ -92,17 +110,23 @@ class BookmarkModel: ObservableObject {
     }
   }
 
-  /// Remove a single item from this folder (toggle-item against the folder). Optimistically drops
-  /// it from the list and syncs the shared library state so other screens update too.
+  private var pendingRemovals = Set<Int>()
+
+  /// Remove a single item from this folder (remove-item, never a toggle, so it can't add the item back).
+  /// Optimistically drops it from the list and syncs the shared library state so other screens update too.
   func removeFromFolder(_ item: MediaItem) async {
-    let previous = items
-    items.removeAll { $0.id == item.id }  // optimistic
+    guard !pendingRemovals.contains(item.id),
+          let index = items.firstIndex(where: { $0.id == item.id }) else { return }
+    pendingRemovals.insert(item.id)
+    defer { pendingRemovals.remove(item.id) }
+    items.remove(at: index)
     AppContext.shared.libraryState.setBookmark(itemId: item.id, folderId: bookmark.id, isOn: false)
     do {
-      try await actionsService.toggleBookmark(itemId: item.id, folderId: bookmark.id)
+      try await actionsService.removeBookmarkItem(itemId: item.id, folderId: bookmark.id)
+      AppContext.shared.libraryState.bookmarkFolderChanged.send(bookmark.id)
       toastMessage = .info(String(format: "Removed from %@".localized, bookmark.title))
     } catch {
-      items = previous  // revert
+      items.insert(item, at: min(index, items.count))
       AppContext.shared.libraryState.setBookmark(itemId: item.id, folderId: bookmark.id, isOn: true)
       Logger.app.debug("remove from folder error: \(error)")
       errorHandler.setError(error)

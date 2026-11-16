@@ -79,6 +79,8 @@ struct RouteDestinationView: View {
       MediaListGridView(items: items, title: title)
     case .castCrew(let people, let title):
       SearchCastCrewView(people: people, title: title)
+    case .credits:
+      EmptyView()
     }
   }
 

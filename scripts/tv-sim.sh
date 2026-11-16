@@ -11,12 +11,13 @@
 #   scripts/tv-sim.sh reset-epg          delete the cached TV guide (forces a fresh download)
 #   scripts/tv-sim.sh signout            wipe the simulator keychain (back to the sign-in screen)
 #
-# SIM overrides the simulator (default: Apple TV 4K (4th generation) (at 1080p) — the one Xcode runs on).
+# SIM overrides the simulator (default: Apple TV 4K (4th generation)). The simulator runs headless;
+# VIEW=1 also opens Xcode's DeviceHub viewer (Xcode 27 has no Simulator.app).
 
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-SIM="${SIM:-Apple TV 4K (4th generation) (at 1080p)}"
+SIM="${SIM:-Apple TV 4K (4th generation)}"
 BUNDLE_ID="com.kino.pub.tv"
 DERIVED="$HOME/Library/Developer/Xcode/DerivedData/KinoPubTV-sim"
 APP="$DERIVED/Build/Products/Debug-appletvsimulator/KinoPub.app"
@@ -32,7 +33,7 @@ boot() {
     xcrun simctl boot "$id"
     xcrun simctl bootstatus "$id" -b >/dev/null
   fi
-  open -a "$(xcode-select -p)/Applications/Simulator.app" --args -CurrentDeviceUDID "$id"
+  if [ "${VIEW:-0}" = 1 ]; then open -a "$(xcode-select -p)/../Applications/DeviceHub.app"; fi
   echo "$id"
 }
 

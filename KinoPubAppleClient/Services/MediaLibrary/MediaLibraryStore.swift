@@ -53,7 +53,10 @@ final class MediaLibraryStore: ObservableObject {
   /// Session cache of the user's bookmark folders, so screens don't re-fetch on every appearance.
   @Published private(set) var bookmarkFolders: [Bookmark] = []
   private var bookmarkFoldersLoaded = false
-  private var bookmarkFoldersLoading = false
+  private var bookmarkFoldersTask: Task<Void, Never>?
+  /// A folder id, sent after the server confirms a membership change in that folder. Screens below a
+  /// pushed detail view get no onAppear on tvOS when it pops, so they refetch on this instead.
+  let bookmarkFolderChanged = PassthroughSubject<Int, Never>()
 
   /// In-memory index of completed downloads ("id|video|season") so per-card status checks are O(1)
   /// instead of reading plists on every render. Rebuilt whenever the download managers change.
@@ -286,7 +289,11 @@ final class MediaLibraryStore: ObservableObject {
   /// `bookmarkFolders` instead of fetching on every appearance.
   @MainActor
   func loadBookmarkFoldersIfNeeded() async {
-    guard !bookmarkFoldersLoaded, !bookmarkFoldersLoading else { return }
+    guard !bookmarkFoldersLoaded else { return }
+    if let running = bookmarkFoldersTask {
+      await running.value
+      return
+    }
     await reloadBookmarkFolders()
   }
 
@@ -302,18 +309,24 @@ final class MediaLibraryStore: ObservableObject {
     persist()
   }
 
-  /// Force a fresh fetch (e.g. pull-to-refresh on the Bookmarks tab, or after creating a folder).
+  /// Force a fresh fetch (e.g. on a return to the Bookmarks tab, or after creating a folder). A load
+  /// already in flight may predate the caller's change, so wait for it and then fetch again.
   @MainActor
   func reloadBookmarkFolders() async {
-    guard !bookmarkFoldersLoading else { return }
-    bookmarkFoldersLoading = true
-    defer { bookmarkFoldersLoading = false }
-    do {
-      bookmarkFolders = try await actionsService.fetchBookmarks()
-      bookmarkFoldersLoaded = true
-    } catch {
-      // Leave any previously cached folders in place; callers surface their own errors if needed.
+    if let running = bookmarkFoldersTask { await running.value }
+    let service = actionsService
+    let task = Task { @MainActor [weak self] in
+      do {
+        let folders = try await service.fetchBookmarks()
+        self?.bookmarkFolders = folders
+        self?.bookmarkFoldersLoaded = true
+      } catch {
+        // Leave any previously cached folders in place; callers surface their own errors if needed.
+      }
     }
+    bookmarkFoldersTask = task
+    await task.value
+    if bookmarkFoldersTask == task { bookmarkFoldersTask = nil }
   }
 
   // MARK: - Audio track preference (озвучка) per item/series id

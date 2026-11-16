@@ -375,6 +375,7 @@ class MediaItemModel: ObservableObject {
     Task {
       do {
         try await actionsService.toggleBookmark(itemId: mediaItemId, folderId: folderId)
+        AppContext.shared.libraryState.bookmarkFolderChanged.send(folderId)
         toastMessage = nowIn
           ? .success(String(format: "Saved to %@".localized, folderTitle))
           : .info(String(format: "Removed from %@".localized, folderTitle))
@@ -465,15 +466,23 @@ class MediaItemModel: ObservableObject {
     let title = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !title.isEmpty else { return }
     Task {
+      let folderId: Int
       do {
-        let folderId = try await actionsService.createBookmarkFolder(title: title)
+        folderId = try await actionsService.createBookmarkFolder(title: title)
+      } catch {
+        errorHandler.setError(error)
+        return
+      }
+      do {
         try await actionsService.toggleBookmark(itemId: mediaItemId, folderId: folderId)
         AppContext.shared.libraryState.setBookmark(itemId: mediaItemId, folderId: folderId, isOn: true)
-        await AppContext.shared.libraryState.reloadBookmarkFolders()
+        AppContext.shared.libraryState.bookmarkFolderChanged.send(folderId)
         toastMessage = .success(String(format: "Saved to %@".localized, title))
       } catch {
         errorHandler.setError(error)
       }
+      // The folder exists even when the add failed, so the menu and the Bookmarks tab must show it.
+      await AppContext.shared.libraryState.reloadBookmarkFolders()
     }
   }
 

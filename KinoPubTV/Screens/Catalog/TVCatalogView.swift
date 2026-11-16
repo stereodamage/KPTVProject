@@ -200,24 +200,6 @@ private struct TVCatalogContent: View {
   }
 }
 
-/// A filter as a pop-up menu button: shows the facet name, or its current value once set.
-private struct FilterMenu<Content: View>: View {
-  let title: String
-  var value: String?
-  let systemImage: String
-  var active: Bool?
-  @ViewBuilder var content: () -> Content
-
-  var body: some View {
-    Menu {
-      content()
-    } label: {
-      Label(value ?? title, systemImage: systemImage)
-        .fontWeight((active ?? (value != nil)) ? .semibold : .regular)
-    }
-  }
-}
-
 /// Year presets for the filter: the last few years individually, then decades.
 enum YearRange {
   struct Option {

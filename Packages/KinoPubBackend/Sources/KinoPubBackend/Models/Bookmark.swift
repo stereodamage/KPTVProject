@@ -80,5 +80,12 @@ public extension Bookmark {
   }
 }
 
+public extension Bookmark {
+  /// `count` as a number; `nil` for a skeleton (`""`) or an unexpected value.
+  var itemCount: Int? {
+    Int(count.trimmingCharacters(in: .whitespaces))
+  }
+}
+
 extension Bookmark: Identifiable { }
 extension Bookmark: Hashable { }

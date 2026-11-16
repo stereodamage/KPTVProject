@@ -215,14 +215,6 @@ struct WatchStateBadge: View {
 }
 
 extension MediaItem {
-  /// The one rating shown for a title: IMDb when available, then Kinopoisk, then kino.pub's own.
-  var preferredRating: (source: String, value: Double)? {
-    if let imdb = imdbRating, imdb > 0 { return ("IMDb", imdb) }
-    if let kp = kinopoiskRating, kp > 0 { return ("КиноПоиск", kp) }
-    if ratingVotes > 0, ratingPercentage > 0 { return ("kino.pub", ratingPercentage / 10) }
-    return nil
-  }
-
   /// "2024 · IMDb 7.9" — the secondary line under a poster.
   var yearAndRating: String {
     var parts = [String(year)]

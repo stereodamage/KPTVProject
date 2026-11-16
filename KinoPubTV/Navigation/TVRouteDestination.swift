@@ -33,8 +33,18 @@ struct TVRouteDestination: View {
                     filter: MediaItemsFilter(contentType: .movie, genres: id > 0 ? [id] : [], countries: []))
     case .personSearch(let name, let field, let title):
       TVPersonView(name: name, field: field, title: title)
-    default:
-      TVComingSoon()
+    case .bookmark(let folder):
+      TVBookmarkFolderView(folder: folder)
+    case .collection(let collection):
+      TVCollectionView(collection: collection)
+    case .credits(let title, let groups):
+      TVCreditsView(title: "Cast & Crew".localized, subtitle: title, groups: groups)
+    case .castCrew(let people, let title):
+      TVCreditsView(title: title, groups: [CreditGroup(id: "PEOPLE", title: "People".localized,
+                                                       people: people.map(\.creditPerson))])
+    case .seasons, .season:
+      // The tvOS detail shows seasons inline; only the iOS views push these.
+      EmptyView()
     }
   }
 

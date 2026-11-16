@@ -48,6 +48,11 @@ final class UserActionsServiceImpl: UserActionsService {
     _ = try await apiClient.performRequest(with: request, decodingType: EmptyResponseData.self)
   }
 
+  func removeBookmarkItem(itemId: Int, folderId: Int) async throws {
+    let request = RemoveBookmarkItemRequest(item: itemId, folder: folderId)
+    _ = try await apiClient.performRequest(with: request, decodingType: EmptyResponseData.self)
+  }
+
   func fetchBookmarks() async throws -> [Bookmark] {
     let request = BookmarksRequest()
     return try await apiClient.performRequest(with: request, decodingType: ArrayData<Bookmark>.self).items
