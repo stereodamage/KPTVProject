@@ -1,34 +1,39 @@
-# KPTV
+# KPTV — kino.pub for Apple TV
 
-A native tvOS application for streaming movies and TV shows from KP service.
+A native SwiftUI client for [kino.pub](https://kino.pub) on **tvOS 18+**, built to the tvOS Human Interface
+Guidelines: sidebar navigation, focus-driven shelves and grids, and the system player. The UI is in Russian.
 
-![Platform](https://img.shields.io/badge/platform-tvOS-lightgrey.svg)
-![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+Unofficial. Not affiliated with kino.pub. You sign in with your own kino.pub account (device code); the app
+bundles no user credentials.
 
 ## Features
 
-**Content Browsing**
-**Enhanced Viewing Experience**
-**Modern tvOS UI**
-- Native SwiftUI interface optimized for Apple TV
-- Focus-driven navigation
-- Context menus for quick actions
-- Beautiful card-based layouts
-- Dark mode support
+- Home with featured banners, Continue Watching and curated shelves
+- Catalog: movies, series, cartoons and more, with sort / genre / country / year / rating / quality filters
+- «Я смотрю»: new episodes, unfinished movies, followed shows; watch history grouped by day
+- Title pages with seasons, cast, similar titles and Kinopoisk facts; version picker for multi-version films
+- System player (`AVPlayerViewController`) with resume, kino.pub progress sync, skip intro / recap / credits
+  (SkipDB, TheIntroDB) and Up Next with autoplay
+- Live sport channels with a programme guide (XMLTV)
 
-## Requirements
+## Build and run
 
-- Apple TV 4K or Apple TV HD
-- tvOS 17.0 or later
-- Xcode 15.0+ (for building)
-- Active KP subscription
+Requirements: Xcode 26+, tvOS 18 SDK.
 
-## License
+```bash
+open KinoPubAppleClient.xcodeproj     # scheme: KinoPubTV, destination: an Apple TV simulator or device
+./scripts/tv-sim.sh run home          # or: clean-build, install and open in the Apple TV Simulator
+cd Packages/KinoPubBackend && swift test
+```
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+To run on a real Apple TV, select your own team under Signing & Capabilities. `DEVELOPMENT_TEAM` stays empty
+in the repository — do not commit it.
 
-## Disclaimer
+Debug builds accept `-tvTab <section>` (open on a sidebar section) and `-tvSeekTo <seconds>` (jump the first
+player, for testing episode endings).
 
-This application is not officially affiliated with or endorsed by KP. You must have a valid KP subscription to use this application. All content is provided by KP service.
+## Credits
 
+Based on [leoru/kinopub-apple-client](https://github.com/leoru/kinopub-apple-client) and its community fork
+[dungeon-master-xx/kinopub-apple-client](https://github.com/dungeon-master-xx/kinopub-apple-client).
+Skip data: [SkipDB](https://skipdb.tv) (ODbL) and [TheIntroDB](https://theintrodb.org).
