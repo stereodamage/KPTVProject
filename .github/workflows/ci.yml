@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Select newest Xcode
+        run: |
+          XC="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)"
+          [ -n "$XC" ] && sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Backend tests
+        run: cd Packages/KinoPubBackend && swift test
+
+      - name: Build tvOS app (unsigned)
+        run: |
+          xcodebuild \
+            -project KinoPubAppleClient.xcodeproj \
+            -scheme KinoPubTV \
+            -configuration Debug \
+            -destination 'generic/platform=tvOS' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            build

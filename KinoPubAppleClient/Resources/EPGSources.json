@@ -1,0 +1,100 @@
+{
+  "_comment": "EPG sources for the Sport tab, tried in order; the first source that has programmes for a given kino.pub channel wins. Each source: id, url (XMLTV feed; gzip transfer handled by URLSession, and .xml.gz files are inflated after download), cacheHours (re-download interval), and map (kino.pub channel title -> feed <channel id>, matched case/spacing/punctuation-insensitively; consulted before automatic name matching; unknown keys ignored).",
+  "sources": [
+    {
+      "id": "iptv.online",
+      "url": "https://iptv.online/epg/epg-lite.xml",
+      "cacheHours": 24,
+      "map": {
+        "Eurosport 1": "Xeurosport1",
+        "Eurosport 2": "Xeurosport2",
+        "NBA TV": "Xnba-tv",
+        "NHL Network": "Xnhl-network-us",
+        "Eleven Sports 4K": "Xeleven-sports-1",
+        "Спорт ТВ": "Xsport-tv-by",
+        "Setanta 1": "XSetanta Sports 1",
+        "Setanta 2": "XSetanta Sports 2",
+        "Setanta KZ": "Xsetanta-kz",
+        "Setanta Plus": "Xsetanta-sports-plus",
+        "Setanta UA": "Xsetanta-ua",
+        "Sky Golf": "Xsky-sports-golf",
+        "Sky Sports F1": "Xsky-sports-f1",
+        "Sky Sports F1 UHD": "Xsky-sports-f1",
+        "Sky Sports Mix": "X10785",
+        "TNT Sport 1": "Xbt-sport1",
+        "TNT Sport 2": "Xbt-sport2",
+        "TNT Sport 3": "Xbt-sport3",
+        "UFC ТВ": "Xufc",
+        "Viju Sport": "Xviasat-sport",
+        "Беларусь 5": "Xbelarus5",
+        "Боец ТВ": "Xmatch-boets",
+        "Бокс ТВ": "Xbox-tv",
+        "КХЛ": "Xkxl",
+        "КХЛ Prime": "Xkxl-hd",
+        "Матч Премьер": "Xmatch-premier",
+        "МАТЧ! Арена": "Xmatch-arena",
+        "МАТЧ! Игра": "Xmatch-igra",
+        "МАТЧ! ТВ": "Xmatch-tv",
+        "Матч! Футбол 1": "Xmatch-football1",
+        "Матч! Футбол 2": "Xmatch-football2",
+        "Матч! Футбол 3": "Xmatch-football3",
+        "Окко Прайм": "Xokko-sport-2",
+        "Окко Спорт": "Xokko-sport",
+        "ОККО Футбол": "Xokko-football",
+        "Окко Чемпионат": "Xokko-chemp",
+        "Старт": "Xstart",
+        "Футбол ТВ": "Xfootball-ru"
+      }
+    },
+    {
+      "id": "iptv-epg.org-uk",
+      "url": "https://iptv-epg.org/files/epg-gb.xml",
+      "cacheHours": 24,
+      "map": {
+        "Sky Football": "SkySportsFootball.uk",
+        "Sky Main Event": "SkySportsMainEvent.uk",
+        "Sky Premier League": "SkySportsPremierLeague.uk",
+        "TNT Sport 4": "TNTSports4.uk",
+        "TNT Sport UHD": "TNTSportsUltimate.uk",
+        "Premier Sports 1": "PremierSports1.uk",
+        "Premier Sports 2": "PremierSports2.uk"
+      }
+    },
+    {
+      "id": "epgshare01-nl",
+      "url": "https://epgshare01.online/epgshare01/epg_ripper_NL1.xml.gz",
+      "cacheHours": 24,
+      "map": {
+        "ESPN 1": "ESPN.nl"
+      }
+    },
+    {
+      "_comment": "epg.pw: single-channel guides (ids from epg.pw/areas/us.html), a few KB each instead of the 75 MB US feed.",
+      "id": "epg.pw-cbs-sports",
+      "url": "https://epg.pw/api/epg.xml?channel_id=464937",
+      "cacheHours": 12,
+      "map": { "CBS Sports": "464937" }
+    },
+    {
+      "id": "epg.pw-fox-sports-1",
+      "url": "https://epg.pw/api/epg.xml?channel_id=465291",
+      "cacheHours": 12,
+      "map": { "Fox Sports 1": "465291" }
+    },
+    {
+      "id": "epg.pw-fox-sports-2",
+      "url": "https://epg.pw/api/epg.xml?channel_id=465355",
+      "cacheHours": 12,
+      "map": { "Fox Sports 2": "465355" }
+    },
+    {
+      "id": "epg.pw-nbc-sports",
+      "url": "https://epg.pw/api/epg.xml?channel_id=485735",
+      "cacheHours": 12,
+      "map": { "NBC Sports": "485735" }
+    }
+  ],
+  "_notCovered": [
+    "FIFA WORLD CUP", "MMA-TV"
+  ]
+}

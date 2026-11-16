@@ -1,0 +1,332 @@
+//
+//  MainView.swift
+//  KinoPubAppleClient
+//
+//  Created by Kirill Kunst on 22.07.2023.
+//
+import SwiftUI
+import KinoPubUI
+import KinoPubBackend
+
+struct MainView: View {
+  @EnvironmentObject var navigationState: NavigationState
+  @EnvironmentObject var errorHandler: ErrorHandler
+  @EnvironmentObject var authState: AuthState
+  @Environment(\.appContext) var appContext
+  
+  @StateObject private var catalog: MediaCatalog
+  @State private var showShortCutPicker: Bool = false
+  @State private var showFilterPicker: Bool = false
+  // Local path: each category catalog owns its navigation so two stacks never share a binding
+  // (sharing navigationState.mainRoutes with Home crashed when switching sidebar sections).
+  @State private var path: [Route] = []
+  
+  init(catalog: @autoclosure @escaping () -> MediaCatalog) {
+    _catalog = StateObject(wrappedValue: catalog())
+  }
+  
+  var toolbarItemPlacement: ToolbarItemPlacement {
+#if os(iOS)
+    .topBarTrailing
+#elseif os(macOS)
+    .navigation
+#endif
+  }
+  
+  var body: some View {
+    NavigationStack(path: $path) {
+      VStack {
+        if catalog.items.isEmpty && !catalog.query.isEmpty {
+          emptyView
+        } else {
+          catalogView
+        }
+      }
+      .searchable(text: $catalog.query, placement: .automatic)
+      .kinoScreen(catalog.title.localized)
+      .moreBackButton()
+      .toolbar {
+        ToolbarItem(placement: toolbarItemPlacement) {
+          Button {
+            showShortCutPicker = true
+          } label: {
+            SortDotIcon(active: catalog.isSortNonDefault)
+          }
+        }
+
+        ToolbarItem(placement: toolbarItemPlacement) {
+          Button {
+            showFilterPicker = true
+          } label: {
+            FilterBadgeIcon(count: catalog.activeFilterCount)
+          }
+        }
+      }
+      .background(Color.KinoPub.background)
+      .sheet(isPresented: $showShortCutPicker, content: {
+        SortSelectionView(sort: $catalog.sort)
+      })
+      .sheet(isPresented: $showFilterPicker, content: {
+        FilterView(model: FilterModel(contentType: catalog.contentType,
+                                      filterDataService: appContext.contentService,
+                                      initialFilter: catalog.activeFilter),
+                   onApply: { filter in
+                     catalog.apply(filter: filter)
+                   }, onClear: {
+                     catalog.clearFilter()
+                   })
+      })
+      .routeDestinations()
+      .handleError(state: $errorHandler.state)
+      // The deep-link filter is already captured by the catalog above; clear it so a later
+      // manual selection of this section isn't unexpectedly pre-filtered.
+      .onAppear {
+        navigationState.pendingCategoryFilter = nil
+      }
+    }
+  }
+  
+  var catalogView: some View {
+    GeometryReader { geometryProxy in
+      ContentItemsListView(width: geometryProxy.size.width, items: $catalog.items, onLoadMoreContent: { item in
+        catalog.loadMoreContent(after: item)
+      }, onRefresh: {
+        await catalog.refresh()
+      }, navigationLinkProvider: { item in
+        RouteLinkProvider().link(for: item)
+      }, statusOverlay: { AnyView(MediaCardStatusBadge(item: $0)) })
+    }
+  }
+  
+  var emptyView: some View {
+    Text("No resuts")
+      .foregroundStyle(Color.KinoPub.text)
+      .font(Font.KinoPub.subheader)
+  }
+}
+
+struct MainView_Previews: PreviewProvider {
+  @StateObject static var navState = NavigationState()
+
+  static var previews: some View {
+    MainView(catalog: MediaCatalog(itemsService: VideoContentServiceMock(), authState: AuthState(authService: AuthorizationServiceMock(), accessTokenService: AccessTokenServiceMock(), deviceService: DeviceServiceMock()), errorHandler: ErrorHandler()))
+      .environmentObject(navState)
+  }
+}
+
+// MARK: - Filtered catalog destination
+
+/// A standalone, paginated catalog showing the results of a single preset
+/// `MediaItemsFilter` (e.g. tapping a genre/country/year on a detail page).
+/// It pushes detail links onto whichever NavigationStack already contains it,
+/// via the supplied `linkProvider`.
+struct FilteredCatalogView: View {
+  @EnvironmentObject var errorHandler: ErrorHandler
+  @Environment(\.appContext) var appContext
+  @StateObject private var catalog: MediaCatalog
+  private let title: String
+  private let linkProvider: NavigationLinkProvider
+  @State private var showShortCutPicker: Bool = false
+  @State private var showFilterPicker: Bool = false
+
+  init(catalog: @autoclosure @escaping () -> MediaCatalog,
+       title: String,
+       linkProvider: NavigationLinkProvider) {
+    _catalog = StateObject(wrappedValue: catalog())
+    self.title = title
+    self.linkProvider = linkProvider
+  }
+
+  private var toolbarItemPlacement: ToolbarItemPlacement {
+#if os(iOS)
+    .topBarTrailing
+#elseif os(macOS)
+    .navigation
+#endif
+  }
+
+  // Lands on the actual section catalog (e.g. Serials) pre-filtered, with the section's own
+  // sort/filter/search chrome — a deep link into the section, not a one-off page.
+  var body: some View {
+    GeometryReader { geometryProxy in
+      ContentItemsListView(width: geometryProxy.size.width, items: $catalog.items, onLoadMoreContent: { item in
+        catalog.loadMoreContent(after: item)
+      }, onRefresh: {
+        await catalog.refresh()
+      }, navigationLinkProvider: { item in
+        linkProvider.link(for: item)
+      }, statusOverlay: { AnyView(MediaCardStatusBadge(item: $0)) })
+    }
+    .searchable(text: $catalog.query, placement: .automatic)
+    .kinoScreen(catalog.title.localized)
+    .moreBackButton()
+    .toolbar {
+      ToolbarItem(placement: toolbarItemPlacement) {
+        Button { showShortCutPicker = true } label: {
+          SortDotIcon(active: catalog.isSortNonDefault)
+        }
+      }
+      ToolbarItem(placement: toolbarItemPlacement) {
+        Button { showFilterPicker = true } label: {
+          FilterBadgeIcon(count: catalog.activeFilterCount)
+        }
+      }
+    }
+    .sheet(isPresented: $showShortCutPicker) {
+      SortSelectionView(sort: $catalog.sort)
+    }
+    .sheet(isPresented: $showFilterPicker) {
+      // Seed the sheet with the section's active filter (e.g. a preset's genre), so opening Filters
+      // on Cartoons/Stand-up shows that genre selected instead of "Any".
+      FilterView(model: FilterModel(contentType: catalog.contentType,
+                                    filterDataService: appContext.contentService,
+                                    initialFilter: catalog.activeFilter),
+                 onApply: { filter in
+                   catalog.apply(filter: filter)
+                 }, onClear: {
+                   catalog.clearFilter()
+                 })
+    }
+    .handleError(state: $errorHandler.state)
+  }
+}
+
+// MARK: - Person search destination
+
+/// A standalone results screen for a preset person search (actor/director).
+/// Runs the query against the given `field` ("cast"/"director") on appear and
+/// pushes detail links via the supplied `linkProvider`.
+struct PersonSearchView: View {
+  @EnvironmentObject var errorHandler: ErrorHandler
+  @StateObject private var model: SearchModel
+  @State private var sort: MediaItemsSort = .default
+  private let query: String
+  private let field: String
+  private let title: String
+  private let linkProvider: NavigationLinkProvider
+
+  init(model: @autoclosure @escaping () -> SearchModel,
+       query: String,
+       field: String,
+       title: String,
+       linkProvider: NavigationLinkProvider) {
+    _model = StateObject(wrappedValue: model())
+    self.query = query
+    self.field = field
+    self.title = title
+    self.linkProvider = linkProvider
+  }
+
+  /// Results sorted by the chosen option. Skeleton placeholders are kept in place (they sort to
+  /// stable positions on empty fields), so loading still shows the grid.
+  private var sortedResults: [MediaItem] {
+    let anyReal = model.results.contains { !($0.skeleton ?? false) }
+    return anyReal ? sort.sorted(model.results) : model.results
+  }
+
+  var body: some View {
+    WidthReader { width in
+      ScrollView {
+        LazyVGrid(columns: PosterGridLayout.columns(width: width), spacing: 16) {
+          ForEach(sortedResults, id: \.id) { item in
+            if item.skeleton ?? false {
+              PosterCard.placeholder(width: nil)
+            } else {
+              NavigationLink(value: linkProvider.link(for: item)) {
+                PosterCard(imageURL: item.posters.medium, title: item.localizedTitle, width: nil)
+              }
+              .buttonStyle(.plain)
+            }
+          }
+        }
+        .padding(16)
+      }
+    }
+    .kinoScreen(title)
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        Menu {
+          ForEach(MediaItemsSort.allCases) { option in
+            Button {
+              sort = option
+            } label: {
+              if sort == option {
+                Label(option.localizedTitle, systemImage: "checkmark")
+              } else {
+                Text(option.localizedTitle)
+              }
+            }
+          }
+        } label: {
+          SortDotIcon(active: sort != .default)
+        }
+      }
+    }
+    .task {
+      model.preset(query: query, field: field)
+    }
+    .handleError(state: $errorHandler.state)
+  }
+}
+
+// MARK: - Toolbar indicators
+
+/// Filter icon with a count badge when filters are active. iOS 26+ uses the system `.badge`
+/// (not clipped by the toolbar group); older OSes fall back to a corner overlay. No padding
+/// is applied to the icon itself, so the toolbar icons keep their native alignment.
+private struct FilterBadgeIcon: View {
+  let count: Int
+  var body: some View {
+    if #available(iOS 26.0, macOS 26.0, *) {
+      Image(systemName: "line.3.horizontal.decrease.circle")
+        .foregroundStyle(count > 0 ? Color.KinoPub.accent : Color.KinoPub.text)
+        .modifier(SystemCountBadge(count: count))
+    } else {
+      ZStack(alignment: .topTrailing) {
+        Image(systemName: "line.3.horizontal.decrease.circle")
+          .foregroundStyle(count > 0 ? Color.KinoPub.accent : Color.KinoPub.text)
+        if count > 0 {
+          Text("\(count)")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, count >= 10 ? 3 : 0)
+            .frame(minWidth: 14, minHeight: 14)
+            .background(Capsule(style: .continuous).fill(Color.KinoPub.accent))
+            .offset(x: 6, y: -6)
+        }
+      }
+    }
+  }
+}
+
+/// Sort icon with a small dot when the sort differs from the default (corner overlay; no padding).
+private struct SortDotIcon: View {
+  let active: Bool
+  var body: some View {
+    ZStack(alignment: .topTrailing) {
+      Image(systemName: "arrow.up.arrow.down")
+      if active {
+        Circle()
+          .fill(Color.KinoPub.accent)
+          .frame(width: 7, height: 7)
+          .offset(x: 5, y: -4)
+      }
+    }
+  }
+}
+
+/// iOS 26+ system badge on a toolbar label (stable `.id` so Liquid Glass rebuilds it on change).
+@available(iOS 26.0, macOS 26.0, *)
+private struct SystemCountBadge: ViewModifier {
+  let count: Int
+  func body(content: Content) -> some View {
+    Group {
+      if count > 0 {
+        content.badge(Text(verbatim: "\(count)"))
+      } else {
+        content
+      }
+    }
+    .id("kinopub-filter-badge-\(count)")
+  }
+}
