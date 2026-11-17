@@ -84,6 +84,10 @@ class HomeModel: ObservableObject {
   /// Whether the real shelves have been fetched. `shelves` starts as skeleton placeholders (so
   /// it's never empty), so we can't gate the one-time load on `shelves.isEmpty`.
   private var didLoadShelves = false
+  /// The server part of Continue Watching from the last good history load; a failed refresh reuses it.
+  private var lastServerEntries: [(item: ContinueItem, watchedAt: TimeInterval)] = []
+  /// Home starts loads from init, `.task` and each return; only the newest one may write the row.
+  private var fetchGeneration = 0
 
   init(itemsService: VideoContentService, authState: AuthState, errorHandler: ErrorHandler) {
     self.itemsService = itemsService
@@ -99,6 +103,8 @@ class HomeModel: ObservableObject {
       subscribeForAuth()
       return
     }
+    fetchGeneration += 1
+    let generation = fetchGeneration
 
     // The watch history powers the "Continue Watching" shelf. Fetch it alongside the other
     // shelves, but isolate failures so a history error can't take down the whole Home screen.
@@ -145,8 +151,10 @@ class HomeModel: ObservableObject {
       }
     }
 
-    // Best-effort: a history failure should never surface an error on Home.
-    let historyEntries = (try? await history)?.history ?? []
+    // Best-effort: a history failure should never surface an error on Home. A failed refresh (Home reloads on
+    // every return) reuses the last good server entries, so the row does not empty; local progress still merges.
+    let historyResult = try? await history
+    let historyEntries = historyResult?.history ?? []
     // Deduplicate by id (a series shows up once), keeping the most-recent occurrence and its
     // real "last watched" timestamp so we can order against locally-tracked items below.
     var seen = Set<Int>()
@@ -174,9 +182,7 @@ class HomeModel: ObservableObject {
     }
 
     // Locally-started titles (> 10s) the backend doesn't list yet, with their own update time.
-    let backendIds = Set(enriched.map { $0.item.id })
-    let localOnly: [(item: ContinueItem, watchedAt: TimeInterval)] = AppContext.shared.localProgressStore.allEntries()
-      .filter { !backendIds.contains($0.id) }
+    let local: [(item: ContinueItem, watchedAt: TimeInterval)] = AppContext.shared.localProgressStore.allEntries()
       .map { entry in
         let subtitle: String?
         if let season = entry.season, let episode = entry.episode {
@@ -189,11 +195,16 @@ class HomeModel: ObservableObject {
         return (item, entry.updatedAt)
       }
 
+    let merged = ContinueWatchingMerge.merge(fresh: historyResult == nil ? nil : enriched, cached: lastServerEntries,
+                                             local: local, id: { $0.item.id }, watchedAt: { $0.watchedAt })
+
     // Single list ordered by real recency (newest first) across both sources, so Continue Watching
     // matches what History shows instead of always floating local items to the front.
     // Drop finished titles (watched to the credits) — a movie at its end / a fully-watched series
     // shouldn't sit in Continue Watching inviting you to resume (Netflix-style).
-    continueWatching = (enriched + localOnly)
+    guard generation == fetchGeneration else { return }
+    if historyResult != nil { lastServerEntries = enriched }
+    continueWatching = merged
       .filter { !$0.item.finished }
       .sorted { $0.watchedAt > $1.watchedAt }
       .map { $0.item }

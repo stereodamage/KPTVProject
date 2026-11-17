@@ -18,6 +18,9 @@ struct TVDetailView: View {
   @State private var pickedVersion: FilmVersion?
   @State private var creatingFolder = false
   @State private var newFolderName = ""
+  @FocusState private var focus: DetailFocus?
+
+  private enum DetailFocus { case play, bookmarks }
 
   init(model: @autoclosure @escaping () -> MediaItemModel) {
     _model = StateObject(wrappedValue: model())
@@ -33,7 +36,6 @@ struct TVDetailView: View {
         VStack(alignment: .leading, spacing: TVMetrics.shelfSpacing) {
           header
             .frame(minHeight: 860, alignment: .bottomLeading)
-            .focusSection()
 
           if item.isSeries, let seasons = item.seasons, !seasons.isEmpty {
             TVEpisodesSection(model: model, seasons: seasons)
@@ -52,11 +54,15 @@ struct TVDetailView: View {
         .padding(.bottom, 80)
       }
       .scrollClipDisabled()
+      // Focus that enters from outside (e.g. back from the sidebar) lands on the bookmarks button, not on
+      // Play: one stray select there only opens a menu. The first focus is set to Play below.
+      .defaultFocus($focus, .bookmarks, priority: .userInitiated)
     }
     .toolbar(.hidden, for: .navigationBar)
     // Push the player only after the sheet is gone: presenting it during the dismissal fails.
     .sheet(isPresented: $showVersions, onDismiss: {
       chosenVersion = pickedVersion
+      if pickedVersion == nil { focus = .play }
       pickedVersion = nil
     }) {
       TVVersionPicker(videos: item.videos ?? []) { video in
@@ -70,7 +76,9 @@ struct TVDetailView: View {
     }
     // The store records no progress for titles it has no snapshot of.
     .onChange(of: model.itemLoaded, initial: true) { _, loaded in
-      if loaded { AppContext.shared.localProgressStore.cacheItem(model.mediaItem) }
+      guard loaded else { return }
+      AppContext.shared.localProgressStore.cacheItem(model.mediaItem)
+      DispatchQueue.main.async { focus = .play }
     }
     .onAppear { model.refreshOnReappear() }
   }
@@ -82,6 +90,8 @@ struct TVDetailView: View {
       Text(item.localizedTitle)
         .font(.title.bold())
         .lineLimit(2)
+        // Without it the title got one line's height and ended in «…» (sim-measured: 91 pt, x ≤ 1230).
+        .fixedSize(horizontal: false, vertical: true)
         .redacted(reason: model.itemLoaded ? [] : .placeholder)
       if item.originalTitle != item.localizedTitle, !item.originalTitle.isEmpty {
         Text(item.originalTitle).font(.headline).foregroundStyle(.secondary)
@@ -130,8 +140,10 @@ struct TVDetailView: View {
   // MARK: - Actions
 
   private var actions: some View {
-    HStack(spacing: 30) {
+    // Bottom-aligned: centred, "down" from Bookmarks on a film went right to Like instead of to the cast row.
+    HStack(alignment: .bottom, spacing: 30) {
       playButton
+        .focused($focus, equals: .play)
       if item.trailer != nil {
         NavigationLink(value: Route.trailerPlayer(item)) {
           Label("Trailer".localized, systemImage: "film")
@@ -149,6 +161,7 @@ struct TVDetailView: View {
         .labelStyle(.iconOnly)
       }
       bookmarksMenu
+        .focused($focus, equals: .bookmarks)
       Button { model.vote(up: true) } label: {
         Label("Like".localized, systemImage: model.myVote == .up ? "hand.thumbsup.fill" : "hand.thumbsup")
       }
@@ -162,6 +175,8 @@ struct TVDetailView: View {
     // Without it SwiftUI wraps the Play label one syllable per line in tight Russian rows.
     .fixedSize()
     .disabled(!model.itemLoaded)
+    // Only the button row is a focus section: the tall header no longer pulls focus up from lower rows.
+    .focusSection()
   }
 
   private var inWatchlist: Bool {
@@ -212,6 +227,10 @@ struct TVDetailView: View {
     }
     .labelStyle(.iconOnly)
     .task { model.loadBookmarkFolders() }
+    .onChange(of: creatingFolder) { _, open in
+      // An alert hands focus back to the screen's default (Play); return it to the menu that opened it.
+      if !open { DispatchQueue.main.async { focus = .bookmarks } }
+    }
     .alert("New folder".localized, isPresented: $creatingFolder) {
       TextField("Folder name".localized, text: $newFolderName)
       Button("Create".localized) { model.createFolderAndAdd(named: newFolderName) }
@@ -361,6 +380,7 @@ private struct TVEpisodesSection: View {
 private struct FactCard: View {
   let text: String
   @State private var showFull = false
+  @FocusState private var focused: Bool
 
   var body: some View {
     Button { showFull = true } label: {
@@ -372,7 +392,8 @@ private struct FactCard: View {
         .padding(30)
     }
     .buttonStyle(.card)
-    .sheet(isPresented: $showFull) {
+    .focused($focused)
+    .sheet(isPresented: $showFull, onDismiss: { focused = true }) {
       ScrollView {
         Text(text)
           .font(.body)
