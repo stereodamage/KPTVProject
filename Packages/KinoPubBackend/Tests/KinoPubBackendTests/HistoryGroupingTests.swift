@@ -27,4 +27,17 @@ final class HistoryGroupingTests: XCTestCase {
     XCTAssertTrue([HistoryItem]().groupedByTitle().isEmpty)
     XCTAssertEqual([entry(7, seen: 1)].groupedByTitle().first?.count, 1)
   }
+
+  func testFreshPageReplacesARewatchedVideoAndKeepsOlderPages() {
+    let loaded = [entry(1, episode: 2, seen: 30), entry(2, seen: 20), entry(3, seen: 10)]
+    let fresh = [entry(2, seen: 50), entry(4, seen: 40), entry(1, episode: 2, seen: 30)]
+    let merged = loaded.mergingFreshPage(fresh)
+    XCTAssertEqual(merged.map(\.item.id), [2, 4, 1, 3])
+    XCTAssertEqual(merged.first?.lastSeen, 50)
+  }
+
+  func testOtherEpisodesOfAShowStaySeparate() {
+    let merged = [entry(1, episode: 1, seen: 10)].mergingFreshPage([entry(1, episode: 2, seen: 20)])
+    XCTAssertEqual(merged.map { $0.media?.number }, [2, 1])
+  }
 }

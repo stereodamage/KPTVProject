@@ -57,6 +57,11 @@ public struct HistoryItem: Codable, Hashable, Identifiable {
     "\(item.id)-\(Int(lastSeen ?? firstSeen ?? time ?? 0))-\(media?.number ?? 0)"
   }
 
+  /// One per watched video: the same episode watched again keeps it, unlike `uniqueID`.
+  public var mediaKey: String {
+    "\(item.id)-\(media?.seasonNumber ?? 0)-\(media?.number ?? 0)"
+  }
+
   private static let seriesTypes: Set<String> = ["serial", "docuserial", "tvshow"]
 
   /// "S{n} · E{n}" (or episode number / title) for series entries; nil for movies.
@@ -126,6 +131,12 @@ public struct HistoryGroup: Identifiable, Hashable {
 }
 
 public extension Array where Element == HistoryItem {
+  /// A fresh first page on top of the entries already loaded: each video keeps only its newest entry.
+  func mergingFreshPage(_ fresh: [HistoryItem]) -> [HistoryItem] {
+    var seen = Set<String>()
+    return (fresh + self).filter { seen.insert($0.mediaKey).inserted }
+  }
+
   /// Folds repeat entries of the same title (a series' episodes) into one group each, placed where
   /// the title's most recent entry was. Assumes the array is newest-first, as the API returns it.
   func groupedByTitle() -> [HistoryGroup] {

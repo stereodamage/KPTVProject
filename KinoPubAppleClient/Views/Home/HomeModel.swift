@@ -60,15 +60,24 @@ class HomeModel: ObservableObject {
     /// Resume progress for the movie / last-watched episode (nil for live or unstarted).
     let watch: WatchProgress?
     let subtitle: String?
+    /// The server's watched flag for the movie or the episode to resume.
+    var serverWatched = false
+    var episodeId: Int?
 
     /// Fraction for the progress bar — nil (no bar) until the title is actually started.
     var progress: Double? {
       guard let watch, watch.state != .unwatched else { return nil }
       return watch.fraction
     }
-    /// Watched to (or past) the credits — surfaced on the card so a finished title reads as "watched"
-    /// instead of still inviting you to continue.
-    var finished: Bool { watch?.isFinished ?? false }
+    /// Watched to (or past) the credits, or flagged watched by the server.
+    var finished: Bool { serverWatched || (watch?.isFinished ?? false) }
+
+    /// The same verdict as the detail screen, with the user's own «Просмотрено» override.
+    @MainActor var isWatched: Bool {
+      let library = AppContext.shared.libraryState
+      if let episodeId { return library.episodeWatched(episodeId: episodeId, serverWatched: finished) }
+      return item.isSeries ? finished : library.movieWatched(itemId: id, serverWatched: finished)
+    }
   }
 
   private var authState: AuthState
@@ -205,7 +214,7 @@ class HomeModel: ObservableObject {
     guard generation == fetchGeneration else { return }
     if historyResult != nil { lastServerEntries = enriched }
     continueWatching = merged
-      .filter { !$0.item.finished }
+      .filter { !$0.item.isWatched }
       .sorted { $0.watchedAt > $1.watchedAt }
       .map { $0.item }
     continueWatchingLoading = false
@@ -218,11 +227,13 @@ class HomeModel: ObservableObject {
       let episode = target.episode
       let watch = WatchProgress(position: Double(episode.watching.time), duration: Double(episode.duration))
       return ContinueItem(id: item.id, item: item, watch: watch,
-                          subtitle: "S\(target.season.number) · E\(episode.number)")
+                          subtitle: "S\(target.season.number) · E\(episode.number)",
+                          serverWatched: episode.isWatched, episodeId: episode.id)
     }
     if let video = item.primaryVideo() {
       let watch = WatchProgress(position: Double(video.watching.time), duration: Double(video.duration))
-      return ContinueItem(id: item.id, item: item, watch: watch, subtitle: item.duration.totalFormatted)
+      return ContinueItem(id: item.id, item: item, watch: watch, subtitle: item.duration.totalFormatted,
+                          serverWatched: item.videos?.first?.isWatched ?? false)
     }
     return ContinueItem(id: item.id, item: item, watch: nil, subtitle: item.duration.totalFormatted)
   }

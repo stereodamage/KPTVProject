@@ -25,6 +25,9 @@ struct TVHistoryView: View {
 private struct TVHistoryContent: View {
   @StateObject private var model: HistoryModel
   @State private var loadingMore = false
+  @FocusState private var focus: HistoryFocus?
+  @State private var lastFocused: HistoryFocus?
+  @State private var refreshTask: Task<Void, Never>?
 
   init(model: @autoclosure @escaping () -> HistoryModel) {
     _model = StateObject(wrappedValue: model())
@@ -42,24 +45,83 @@ private struct TVHistoryContent: View {
           }
           .pickerStyle(.segmented)
           .fixedSize()
+          .focused($focus, equals: .filter)
           .focusSection()
         }
 
         if model.isLoadingSkeleton {
           ProgressView().frame(maxWidth: .infinity, minHeight: 400)
         } else if model.historyItems.isEmpty {
-          StatusView(systemImage: "clock.arrow.circlepath", title: "Nothing here yet".localized)
-            .frame(maxWidth: .infinity, minHeight: 400)
+          VStack(spacing: 40) {
+            StatusView(systemImage: "clock.arrow.circlepath", title: "Nothing here yet".localized)
+            // Something focusable: with no focus at all, «menu» quits the app.
+            Button("Refresh".localized, systemImage: "arrow.clockwise") {
+              Task { if let data = await model.fetchFirstPage() { model.applyFirstPage(data) } }
+            }
+            .fixedSize()
+            .focused($focus, equals: .refresh)
+          }
+          .frame(maxWidth: .infinity, minHeight: 400)
         } else {
           ForEach(model.groupedSections) { section in
-            HistoryDayGrid(title: Self.dayTitle(section.day), entries: section.items,
-                           onAppear: loadMoreIfLast, onRemove: model.removeFromHistory)
+            HistoryDayGrid(title: Self.dayTitle(section.day), day: section.day, entries: section.items,
+                           focus: $focus, onAppear: loadMoreIfLast, onRemove: remove)
           }
         }
       }
       .padding(.bottom, 60)
     }
     .scrollClipDisabled()
+    .refreshWhenOnTop(true) {
+      refreshTask?.cancel()
+      refreshTask = Task {
+        await refreshWithFocus(load: model.fetchFirstPage, handoff: { fresh in
+          handoff(keeping: Self.cardIds(model.historyItems.mergingFreshPage(fresh.history)))
+        }, apply: model.applyFirstPage)
+      }
+    }
+    .onChange(of: focus) { _, now in
+      if let now { lastFocused = now }
+    }
+    .onChange(of: model.historyItems.isEmpty) { _, empty in
+      if empty, !model.isLoadingSkeleton {
+        DispatchQueue.main.async { focus = .refresh }
+      } else if !empty, lastFocused == .refresh, let first = shownCards.first {
+        DispatchQueue.main.async { focus = first }
+      }
+    }
+  }
+
+  /// The cards that `entries` make: one per title and day.
+  private static func cardIds(_ entries: [HistoryItem]) -> Set<HistoryFocus> {
+    let calendar = Calendar.current
+    return Set(entries.map { entry in
+      let day = calendar.startOfDay(for: Date(timeIntervalSince1970: entry.lastSeen ?? entry.time ?? 0))
+      return HistoryFocus.card(day: day, item: entry.item.id)
+    })
+  }
+
+  private var shownCards: [HistoryFocus] {
+    model.groupedSections.flatMap { section in
+      section.items.groupedByTitle().map { HistoryFocus.card(day: section.day, item: $0.latest.item.id) }
+    }
+  }
+
+  /// Moves focus off a card that will leave, to the nearest card that stays. Returns true if it moved focus.
+  private func handoff(keeping keep: Set<HistoryFocus>) -> Bool {
+    guard let last = lastFocused, case .card = last, !keep.contains(last) else { return false }
+    focus = FocusNeighbor.neighbor(of: last, in: shownCards, kept: keep.contains)
+      ?? (model.availableTypes.count > 1 ? .filter : nil)
+    return true
+  }
+
+  /// The card leaves at once, so focus moves to a neighbour first.
+  private func remove(_ entry: HistoryItem) {
+    let moved = handoff(keeping: Self.cardIds(model.historyItems.filter { $0.item.id != entry.item.id }))
+    Task {
+      if moved { try? await Task.sleep(for: .milliseconds(200)) }
+      model.removeFromHistory(entry)
+    }
   }
 
   /// Pages in more history when the card holding the very last loaded entry comes on screen. (Keyed
@@ -87,10 +149,17 @@ private struct TVHistoryContent: View {
   }
 }
 
+enum HistoryFocus: Hashable {
+  case filter, refresh
+  case card(day: Date, item: Int)
+}
+
 /// One day of history: a heading and a grid of wide cards, one per title.
 struct HistoryDayGrid: View {
   let title: String
+  var day: Date = .now
   let entries: [HistoryItem]
+  var focus: FocusState<HistoryFocus?>.Binding
   var onAppear: (HistoryGroup) -> Void = { _ in }
   var onRemove: (HistoryItem) -> Void = { _ in }
 
@@ -100,7 +169,8 @@ struct HistoryDayGrid: View {
       LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: TVMetrics.itemSpacing, alignment: .top),
                                count: TVMetrics.wideColumns),
                 spacing: TVMetrics.shelfSpacing) {
-        ForEach(entries.groupedByTitle()) { group in
+        // Keyed by title: a title watched again keeps its card, so focus stays on it.
+        ForEach(entries.groupedByTitle(), id: \.latest.item.id) { group in
           let entry = group.latest
           WideLockup(imageURL: entry.item.posters.wide ?? entry.item.posters.big,
                      title: entry.item.localizedTitle,
@@ -113,6 +183,7 @@ struct HistoryDayGrid: View {
               onRemove(entry)
             }
           }
+          .focused(focus, equals: .card(day: day, item: entry.item.id))
           .onAppear { onAppear(group) }
         }
       }
@@ -128,8 +199,17 @@ struct HistoryDayGrid: View {
     HistoryItem(time: nil, counter: 1, firstSeen: nil, lastSeen: TimeInterval(100 - index),
                 item: .mock(id: id), media: HistoryMedia(number: index + 1, seasonNumber: 1))
   }
-  return ScrollView {
-    HistoryDayGrid(title: "Сегодня", entries: entries)
+  return HistoryDayGridPreview(entries: entries)
+}
+
+private struct HistoryDayGridPreview: View {
+  let entries: [HistoryItem]
+  @FocusState private var focus: HistoryFocus?
+
+  var body: some View {
+    ScrollView {
+      HistoryDayGrid(title: "Сегодня", entries: entries, focus: $focus)
+    }
+    .scrollClipDisabled()
   }
-  .scrollClipDisabled()
 }

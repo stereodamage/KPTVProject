@@ -64,6 +64,7 @@ struct TVBookmarksPage: View {
 
   @FocusState private var focus: String?
   @State private var lastFocused: (folder: Int, item: Int)?
+  @State private var refreshTask: Task<Void, Never>?
 
   var body: some View {
     // Same rule as the folder grid: apply changes from a detail screen once back on top, and move focus
@@ -94,7 +95,10 @@ struct TVBookmarksPage: View {
       .padding(.bottom, 60)
     }
     .scrollClipDisabled()
-    .refreshWhenOnTop(needsRefresh) { Task { await refresh() } }
+    .refreshWhenOnTop(needsRefresh) {
+      refreshTask?.cancel()
+      refreshTask = Task { await refresh() }
+    }
     .onChange(of: focus) { _, now in
       guard let now else { return }
       let parts = now.split(separator: "-")
@@ -115,14 +119,12 @@ struct TVBookmarksPage: View {
   }
 
   private func refresh() async {
-    try? await Task.sleep(for: .milliseconds(600))
-    let shelves = await load()
-    if let last = lastFocused, let fresh = shelves[last.folder],
-       !fresh.prefix(BookmarkFolderShelf.previewLimit).contains(where: { $0.id == last.item }) {
+    await refreshWithFocus(load: { await load() }, handoff: { shelves in
+      guard let last = lastFocused, let fresh = shelves[last.folder],
+            !fresh.prefix(BookmarkFolderShelf.previewLimit).contains(where: { $0.id == last.item }) else { return false }
       focus = "all-\(last.folder)"
-      try? await Task.sleep(for: .milliseconds(200))
-    }
-    apply(shelves)
+      return true
+    }, apply: apply)
   }
 }
 

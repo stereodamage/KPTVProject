@@ -49,6 +49,7 @@ struct TVDetailView: View {
           if let actor = model.primaryActor {
             relatedShelf("More with %@".localized.replacingOccurrences(of: "%@", with: actor), model.moreWithActor)
           }
+          commentsSection
           factsSection
         }
         .padding(.bottom, 80)
@@ -80,7 +81,11 @@ struct TVDetailView: View {
       AppContext.shared.localProgressStore.cacheItem(model.mediaItem)
       DispatchQueue.main.async { focus = .play }
     }
-    .onAppear { model.refreshOnReappear() }
+    // No onAppear after a pop on tvOS: reload when back on top, and after a player opened from the version sheet.
+    .refreshWhenOnTop(true) { model.refreshOnReappear() }
+    .onChange(of: chosenVersion) { old, now in
+      if old != nil, now == nil { model.refreshOnReappear() }
+    }
   }
 
   // MARK: - Header
@@ -300,6 +305,23 @@ struct TVDetailView: View {
   }
 
   @ViewBuilder
+  private var commentsSection: some View {
+    if !model.comments.isEmpty {
+      Shelf(title: "\("Comments".localized) · \(model.comments.count)") {
+        ForEach(model.comments.prefix(20)) { comment in
+          FactCard(text: comment.message.htmlToPlainText, header: Self.commentHeader(comment)).frame(width: 640)
+        }
+      }
+    }
+  }
+
+  private static func commentHeader(_ comment: Comment) -> String {
+    let date = Date(timeIntervalSince1970: TimeInterval(comment.created))
+      .formatted(Date.FormatStyle(date: .abbreviated, time: .omitted).locale(Locale(identifier: "ru")))
+    return comment.user.name.isEmpty ? date : "\(comment.user.name) · \(date)"
+  }
+
+  @ViewBuilder
   private var factsSection: some View {
     let facts = model.facts.filter { !($0.spoiler ?? false) }.prefix(12)
     if !facts.isEmpty {
@@ -379,26 +401,36 @@ private struct TVEpisodesSection: View {
 
 private struct FactCard: View {
   let text: String
+  var header: String?
   @State private var showFull = false
   @FocusState private var focused: Bool
 
   var body: some View {
     Button { showFull = true } label: {
-      Text(text)
-        .font(.callout)
-        .lineLimit(5)
-        .multilineTextAlignment(.leading)
-        .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
-        .padding(30)
+      VStack(alignment: .leading, spacing: 12) {
+        if let header {
+          Text(header).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        }
+        Text(text)
+          .font(.callout)
+          .lineLimit(header == nil ? 5 : 4)
+      }
+      .multilineTextAlignment(.leading)
+      .frame(maxWidth: .infinity, minHeight: 220, alignment: .topLeading)
+      .padding(30)
     }
     .buttonStyle(.card)
     .focused($focused)
     .sheet(isPresented: $showFull, onDismiss: { focused = true }) {
       ScrollView {
-        Text(text)
-          .font(.body)
-          .frame(maxWidth: 1100, alignment: .leading)
-          .padding(60)
+        VStack(alignment: .leading, spacing: 20) {
+          if let header {
+            Text(header).font(.callout).foregroundStyle(.secondary)
+          }
+          Text(text).font(.body)
+        }
+        .frame(maxWidth: 1100, alignment: .leading)
+        .padding(60)
       }
     }
   }
@@ -442,12 +474,20 @@ private struct Backdrop: View {
       }
       .frame(width: geo.size.width, height: geo.size.height)
       .clipped()
+      // The text column ends near x = 1230 of 1920; keep it dark there, so a logo baked into the art stays faint.
       .overlay {
-        LinearGradient(colors: [.black.opacity(0.9), .black.opacity(0.4), .clear],
+        LinearGradient(stops: [.init(color: .black.opacity(0.95), location: 0),
+                               .init(color: .black.opacity(0.9), location: 0.42),
+                               .init(color: .black.opacity(0.5), location: 0.66),
+                               .init(color: .black.opacity(0.1), location: 0.86),
+                               .init(color: .clear, location: 1)],
                        startPoint: .leading, endPoint: .trailing)
       }
       .overlay {
-        LinearGradient(colors: [.clear, .black.opacity(0.95)], startPoint: .center, endPoint: .bottom)
+        LinearGradient(stops: [.init(color: .clear, location: 0.25),
+                               .init(color: .black.opacity(0.6), location: 0.6),
+                               .init(color: .black.opacity(0.95), location: 1)],
+                       startPoint: .top, endPoint: .bottom)
       }
     }
     .background(Color.KinoPub.background)

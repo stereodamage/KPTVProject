@@ -62,6 +62,7 @@ struct TVBookmarkFolderPage: View {
   @Namespace private var focusScope
   @FocusState private var focus: String?
   @State private var lastFocused: Int?
+  @State private var refreshTask: Task<Void, Never>?
 
   private var isLoading: Bool { items.contains { $0.skeleton ?? false } }
 
@@ -118,7 +119,10 @@ struct TVBookmarkFolderPage: View {
     }
     .scrollClipDisabled()
     .focusScope(focusScope)
-    .refreshWhenOnTop(needsRefresh) { Task { await refresh() } }
+    .refreshWhenOnTop(needsRefresh) {
+      refreshTask?.cancel()
+      refreshTask = Task { await refresh() }
+    }
     .onChange(of: focus) { _, now in
       guard let now else { return }
       lastFocused = now.hasPrefix("item-") ? Int(now.dropFirst(5)) : nil
@@ -132,21 +136,13 @@ struct TVBookmarkFolderPage: View {
   }
 
   private func refresh() async {
-    // Let the pop finish, so tvOS has put focus back on the title the user opened.
-    try? await Task.sleep(for: .milliseconds(600))
-    guard let fresh = await load() else { return }
-    let keep = Set(fresh.map(\.id))
-    if let last = lastFocused, !keep.contains(last) {
-      focus = neighbor(of: last, keeping: keep)
-      try? await Task.sleep(for: .milliseconds(200))
-    }
-    apply(fresh)
-  }
-
-  private func neighbor(of id: Int, keeping keep: Set<Int>) -> String {
-    guard let index = items.firstIndex(where: { $0.id == id }) else { return "sort" }
-    let next = items[(index + 1)...].first { keep.contains($0.id) } ?? items[..<index].last { keep.contains($0.id) }
-    return next.map { "item-\($0.id)" } ?? "sort"
+    await refreshWithFocus(load: load, handoff: { fresh in
+      let keep = Set(fresh.map(\.id))
+      guard let last = lastFocused, !keep.contains(last) else { return false }
+      let next = FocusNeighbor.neighbor(of: last, in: items.map(\.id), kept: keep.contains)
+      focus = next.map { "item-\($0)" } ?? "sort"
+      return true
+    }, apply: apply)
   }
 }
 
