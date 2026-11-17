@@ -47,6 +47,7 @@ class MediaItemModel: ObservableObject {
   @Published public var reviews: KpReviewsPage = .empty
   @Published public var staff: [KpStaffMember] = []
   @Published public var images: [KpImage] = []
+  @Published public var comments: [Comment] = []
   // Per-group "finished loading" flags so the view can reserve space with a skeleton shelf while a
   // dynamically-loaded block is in flight, then swap content in place (or collapse) — instead of the
   // section popping in from zero height and shoving the rest of the page around.
@@ -219,8 +220,25 @@ class MediaItemModel: ObservableObject {
         fetchRelated()
         fetchPeopleShelves()
         fetchExtras()
+        if FeatureFlags.comments { fetchComments() }
       } catch {
         errorHandler.setError(error)
+      }
+    }
+  }
+
+  /// Top-level kino.pub comments, newest first. Best-effort: a failure hides the section.
+  func fetchComments() {
+    let id = mediaItem.id
+    Task {
+      do {
+        let all = try await itemsService.fetchComments(for: id).comments
+        Logger.app.debug("comments for \(id): \(all.count)")
+        comments = all
+          .filter { $0.deleted != true && ($0.depth ?? 0) == 0 && !$0.message.isEmpty }
+          .sorted { $0.created > $1.created }
+      } catch {
+        Logger.app.debug("comments error for \(id): \(error)")
       }
     }
   }

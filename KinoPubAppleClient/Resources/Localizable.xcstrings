@@ -4687,6 +4687,22 @@
         }
       }
     },
+    "Changes are off until the settings load." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes are off until the settings load."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изменения недоступны, пока настройки не загрузятся."
+          }
+        }
+      }
+    },
     "Changes take effect within a minute" : {
       "localizations" : {
         "az" : {
@@ -10352,6 +10368,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Форматы"
+          }
+        }
+      }
+    },
+    "Formats follow what this device can play. kino.pub applies changes within a minute." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formats follow what this device can play. kino.pub applies changes within a minute."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Форматы определяются возможностями устройства. kino.pub применит изменения в течение минуты."
           }
         }
       }
@@ -20670,6 +20702,22 @@
         }
       }
     },
+    "Refresh" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Refresh"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Обновить"
+          }
+        }
+      }
+    },
     "Registration Date" : {
       "localizations" : {
         "az" : {
@@ -22295,6 +22343,22 @@
         }
       }
     },
+    "Retry" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Retry"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повторить"
+          }
+        }
+      }
+    },
     "Reviews" : {
       "localizations" : {
         "az" : {
@@ -23865,6 +23929,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Настройки"
+          }
+        }
+      }
+    },
+    "Settings did not load" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings did not load"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Настройки не загрузились"
           }
         }
       }

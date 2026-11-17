@@ -35,24 +35,25 @@ private struct TVSettingsContent: View {
     HStack(alignment: .center, spacing: 100) {
       account
         .frame(maxWidth: .infinity)
+      // View links, not value links: the tab's stack path only takes `Route` values.
       List {
         Section {
           Picker("Maximum quality".localized, selection: $streamQuality) {
             ForEach(StreamQuality.allCases) { Text($0.title).tag($0) }
           }
           Toggle("Skip intros automatically".localized, isOn: $autoSkipIntro)
-          NavigationLink("Streaming & device".localized, value: SettingsRoute.device)
+          NavigationLink("Streaming & device".localized) { TVDeviceSettingsView() }
         } header: {
           Text("Playback".localized)
         }
         Section {
-          NavigationLink("Devices".localized, value: SettingsRoute.devices)
-          NavigationLink("Storage".localized, value: SettingsRoute.storage)
+          NavigationLink("Devices".localized) { TVDevicesView() }
+          NavigationLink("Storage".localized) { TVStorageView() }
         } header: {
           Text("Account".localized)
         }
         Section {
-          NavigationLink("About".localized, value: SettingsRoute.about)
+          NavigationLink("About".localized) { TVAboutView() }
           Button(model.isLoggingOut ? "Signing out…".localized : "Sign out".localized, role: .destructive) {
             showLogout = true
           }
@@ -63,14 +64,6 @@ private struct TVSettingsContent: View {
       // The focused row's platter grows past the list's bounds; clipping cut its left edge.
       .scrollClipDisabled()
       .frame(maxWidth: .infinity)
-    }
-    .navigationDestination(for: SettingsRoute.self) { route in
-      switch route {
-      case .device: TVDeviceSettingsView()
-      case .devices: TVDevicesView()
-      case .storage: TVStorageView()
-      case .about: TVAboutView()
-      }
     }
     .task { model.fetch() }
     .confirmationDialog("Sign out of kino.pub?".localized, isPresented: $showLogout) {
@@ -106,10 +99,6 @@ private struct TVSettingsContent: View {
   }
 }
 
-enum SettingsRoute: Hashable {
-  case device, devices, storage, about
-}
-
 // MARK: - Streaming & device (server-side settings for this device)
 
 private struct TVDeviceSettingsView: View {
@@ -128,17 +117,21 @@ private struct TVDeviceSettingsView: View {
       _model = StateObject(wrappedValue: model())
     }
 
-    /// Saved automatically on every change — there's no Save button on a TV.
-    private var signature: String {
-      let s = model.settings
-      return "\(s.streamingType)-\(s.serverLocation)-\(s.support4k)-\(s.supportHevc)-\(s.supportHdr)"
-    }
-
     var body: some View {
       SettingsPage(title: "Streaming & device".localized,
-                   footnote: "kino.pub applies changes within a minute.".localized) {
-        if model.isLoading && !loaded {
+                   footnote: model.loadFailed ? nil : "Formats follow what this device can play. kino.pub applies changes within a minute.".localized) {
+        if model.isLoading && (!loaded || model.loadFailed) {
           ProgressView()
+        } else if model.loadFailed {
+          VStack(spacing: 40) {
+            StatusView(systemImage: "exclamationmark.triangle",
+                       title: "Settings did not load".localized,
+                       message: "Changes are off until the settings load.".localized)
+            Button("Retry".localized, systemImage: "arrow.clockwise") {
+              Task { await model.load() }
+            }
+            .fixedSize()
+          }
         } else {
           List {
             if !model.deviceTitle.isEmpty {
@@ -153,10 +146,11 @@ private struct TVDeviceSettingsView: View {
               }
             }
             .pickerStyle(.navigationLink)
+            // Read-only: the app sets these from the hardware at every launch (`syncCapabilities`).
             Section("Formats".localized) {
-              Toggle("4K", isOn: $model.settings.support4k)
-              Toggle("HEVC", isOn: $model.settings.supportHevc)
-              Toggle("HDR", isOn: $model.settings.supportHdr)
+              LabeledContent("4K", value: (model.settings.support4k ? "Yes" : "No").localized)
+              LabeledContent("HEVC", value: (model.settings.supportHevc ? "Yes" : "No").localized)
+              LabeledContent("HDR", value: (model.settings.supportHdr ? "Yes" : "No").localized)
             }
           }
         }
@@ -165,9 +159,7 @@ private struct TVDeviceSettingsView: View {
         await model.load()
         loaded = true
       }
-      .onChange(of: signature) { _, _ in
-        if loaded { Task { await model.save() } }
-      }
+      .onChange(of: model.signature) { _, _ in model.enqueueSave() }
     }
   }
 }
@@ -354,6 +346,7 @@ private struct SettingsPage<Content: View>: View {
         .scrollClipDisabled()
       if let footnote {
         Text(footnote).font(.caption).foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
       }
     }
     .frame(maxWidth: 1200, maxHeight: .infinity, alignment: .top)

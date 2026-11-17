@@ -4,8 +4,8 @@
 //
 //  "Я смотрю" as one TV page instead of segmented tabs: a row of shows with new episodes (every
 //  series type — the old screen showed plain serials only), a row of movies you haven't finished
-//  (previously unreachable on TV), then a grid of every show you follow. Reloads on each visit so
-//  it reflects what you just watched.
+//  (previously unreachable on TV), then a grid of every show you follow. Reloads after each return
+//  so it reflects what you just watched.
 //
 
 import SwiftUI
@@ -19,6 +19,18 @@ struct TVWatchingView: View {
   @State private var movies: [WatchingSerial] = []
   @State private var following: [WatchingSerial] = []
   @State private var loaded = false
+  @FocusState private var focus: String?
+  @State private var lastFocused: String?
+  @State private var refreshTask: Task<Void, Never>?
+
+  /// A nil list failed to load and stays as it was.
+  private struct Lists {
+    var newEpisodes: [WatchingSerial]?
+    var movies: [WatchingSerial]?
+    var following: [WatchingSerial]?
+  }
+
+  private var isEmpty: Bool { newEpisodes.isEmpty && movies.isEmpty && following.isEmpty }
 
   var body: some View {
     ScrollView {
@@ -27,24 +39,30 @@ struct TVWatchingView: View {
 
         if !loaded {
           ProgressView().frame(maxWidth: .infinity, minHeight: 400)
-        } else if newEpisodes.isEmpty && movies.isEmpty && following.isEmpty {
-          StatusView(systemImage: "play.tv", title: "Nothing here yet".localized)
-            .frame(maxWidth: .infinity, minHeight: 400)
+        } else if isEmpty {
+          VStack(spacing: 40) {
+            StatusView(systemImage: "play.tv", title: "Nothing here yet".localized)
+            // Something focusable: with no focus at all, «menu» quits the app.
+            Button("Refresh".localized, systemImage: "arrow.clockwise") { startRefresh() }
+              .fixedSize()
+              .focused($focus, equals: "refresh")
+          }
+          .frame(maxWidth: .infinity, minHeight: 400)
         } else {
           if !newEpisodes.isEmpty {
             Shelf(title: "New episodes".localized) {
-              ForEach(newEpisodes) { WatchingTile(serial: $0).tileWidth(TVMetrics.posterColumns) }
+              ForEach(newEpisodes) { tile($0, row: "new").tileWidth(TVMetrics.posterColumns) }
             }
           }
           if !movies.isEmpty {
             Shelf(title: "Unfinished movies".localized) {
-              ForEach(movies) { WatchingTile(serial: $0).tileWidth(TVMetrics.posterColumns) }
+              ForEach(movies) { tile($0, row: "movie").tileWidth(TVMetrics.posterColumns) }
             }
           }
           if !following.isEmpty {
             VStack(alignment: .leading, spacing: 24) {
               Text("My series".localized).font(.headline).foregroundStyle(.secondary)
-              PosterGrid(items: following) { WatchingTile(serial: $0, showsProgress: true) }
+              PosterGrid(items: following) { tile($0, row: "follow", showsProgress: true) }
             }
             .focusSection()
           }
@@ -53,25 +71,71 @@ struct TVWatchingView: View {
       .padding(.bottom, 60)
     }
     .scrollClipDisabled()
-    .task { await load() }
+    .task {
+      if let lists = await fetch() { apply(lists) }
+      loaded = true
+    }
+    .refreshWhenOnTop(true) { startRefresh() }
+    .onChange(of: focus) { _, now in
+      if let now { lastFocused = now }
+    }
+    .onChange(of: isEmpty) { _, empty in
+      if empty, loaded {
+        DispatchQueue.main.async { focus = "refresh" }
+      } else if !empty, lastFocused == "refresh",
+                let first = focusIds(newEpisodes: newEpisodes, movies: movies, following: following).first {
+        DispatchQueue.main.async { focus = first }
+      }
+    }
   }
 
-  /// Fetches all three lists in parallel. A failed list just stays as it was; the page only shows
-  /// an error if nothing loaded at all on the first visit.
-  private func load() async {
+  private func tile(_ serial: WatchingSerial, row: String, showsProgress: Bool = false) -> some View {
+    WatchingTile(serial: serial, showsProgress: showsProgress)
+      .focused($focus, equals: "\(row)-\(serial.id)")
+  }
+
+  private func startRefresh() {
+    refreshTask?.cancel()
+    refreshTask = Task {
+      await refreshWithFocus(load: fetch, handoff: handoff, apply: apply)
+    }
+  }
+
+  /// Fetches all three lists in parallel. The page shows an error only if nothing loaded on the first visit.
+  private func fetch() async -> Lists? {
     let service = appContext.contentService
     async let newData = try? service.fetchWatchingSerials(subscribed: 0, type: nil)
     async let movieData = try? service.fetchWatchingMovies()
     async let followingData = try? service.fetchWatchingSerials(subscribed: 1, type: nil)
     let (n, m, f) = await (newData, movieData, followingData)
-
-    if let n { newEpisodes = n.items.filter { ($0.new ?? 0) > 0 } }
-    if let m { movies = m.items }
-    if let f { following = f.items }
-    if n == nil && m == nil && f == nil && !loaded {
-      errorHandler.setError(URLError(.cannotLoadFromNetwork))
+    if n == nil && m == nil && f == nil {
+      if !loaded { errorHandler.setError(URLError(.cannotLoadFromNetwork)) }
+      return nil
     }
-    loaded = true
+    return Lists(newEpisodes: n.map { $0.items.filter { ($0.new ?? 0) > 0 } }, movies: m?.items, following: f?.items)
+  }
+
+  private func apply(_ lists: Lists) {
+    if let list = lists.newEpisodes { newEpisodes = list }
+    if let list = lists.movies { movies = list }
+    if let list = lists.following { following = list }
+  }
+
+  private func focusIds(newEpisodes: [WatchingSerial], movies: [WatchingSerial],
+                        following: [WatchingSerial]) -> [String] {
+    newEpisodes.map { "new-\($0.id)" } + movies.map { "movie-\($0.id)" } + following.map { "follow-\($0.id)" }
+  }
+
+  /// A focused card that leaves hands focus to the nearest card that stays, in page order.
+  private func handoff(_ fresh: Lists) -> Bool {
+    guard let last = lastFocused, last != "refresh" else { return false }
+    let kept = Set(focusIds(newEpisodes: fresh.newEpisodes ?? newEpisodes, movies: fresh.movies ?? movies,
+                            following: fresh.following ?? following))
+    guard !kept.contains(last) else { return false }
+    let shown = focusIds(newEpisodes: newEpisodes, movies: movies, following: following)
+    guard let next = FocusNeighbor.neighbor(of: last, in: shown, kept: kept.contains) else { return false }
+    focus = next
+    return true
   }
 }
 

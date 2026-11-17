@@ -8,10 +8,8 @@
 import Foundation
 
 enum FeatureFlags {
-  /// Comments on a title's detail page. Kept off until the live `GET /v1/items/comments` response
-  /// shape is verified against a real account — the implementation and its decoder are complete and
-  /// tested, but couldn't be confirmed end-to-end yet, so we don't surface a possibly-empty screen.
-  static let comments = false
+  /// Comments on a title's detail page (tvOS: a shelf that hides when there are none).
+  static let comments = true
 
   /// 3D (stereoscopic) playback. OFF: `AVVideoComposition`'s SBS/OU/anaglyph reshaping doesn't
   /// reliably apply to kino.pub's streams (shows a doubled/packed image), so the detail-page mode

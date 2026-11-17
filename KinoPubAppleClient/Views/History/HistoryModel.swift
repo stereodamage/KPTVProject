@@ -93,15 +93,27 @@ class HistoryModel: ObservableObject {
   }
 
   private func handleData(_ data: HistoryData) {
-    let newItems = data.history.map { $0.item }
     if isLoadingSkeleton {
-      items = newItems
       historyItems = data.history
     } else {
-      items.append(contentsOf: newItems)
-      historyItems.append(contentsOf: data.history)
+      let loaded = Set(historyItems.map(\.mediaKey))
+      historyItems.append(contentsOf: data.history.filter { !loaded.contains($0.mediaKey) })
     }
+    items = historyItems.map(\.item)
     pagination = data.pagination
+  }
+
+  /// The first page, for a refresh that keeps the list on screen. Nil on failure.
+  func fetchFirstPage() async -> HistoryData? {
+    guard authState.userState == .authorized, !isLoadingSkeleton else { return nil }
+    return try? await contentService.fetchHistory(page: nil)
+  }
+
+  /// Puts a fresh first page on top of the pages already loaded.
+  func applyFirstPage(_ data: HistoryData) {
+    historyItems = historyItems.mergingFreshPage(data.history)
+    items = historyItems.map(\.item)
+    if pagination == nil { pagination = data.pagination }
   }
 
   func loadMoreContent(after item: MediaItem) {
