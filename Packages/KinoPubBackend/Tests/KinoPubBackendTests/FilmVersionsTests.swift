@@ -86,4 +86,22 @@ final class FilmVersionsTests: XCTestCase {
     XCTAssertEqual(version.files, video.files)
     XCTAssertEqual(version.id, video.id)
   }
+
+  // MARK: - Quality label from the quality class, not the pixel height
+
+  private func file(_ w: Int, _ h: Int, _ quality: String) -> FileInfo {
+    FileInfo(codec: "h264", w: w, h: h, quality: quality, qualityID: 0,
+             url: URLInfo(http: "", hls: "", hls4: "", hls2: ""))
+  }
+
+  func testBestQuality_LetterboxedFilmsUseTheQualityClass() {
+    XCTAssertEqual(FilmVersions.bestQuality([file(1920, 800, "1080p"), file(1280, 534, "720p")]), "1080p")
+    XCTAssertEqual(FilmVersions.bestQuality([file(3840, 1606, "2160p"), file(1920, 800, "1080p")]), "4K")
+  }
+
+  func testBestQuality_FallsBackToWidthWhenQualityIsUnreadable() {
+    XCTAssertEqual(FilmVersions.bestQuality([file(1920, 800, "")]), "1080p")
+    XCTAssertEqual(FilmVersions.bestQuality([file(3840, 1600, "uhd")]), "4K")
+    XCTAssertNil(FilmVersions.bestQuality([]))
+  }
 }

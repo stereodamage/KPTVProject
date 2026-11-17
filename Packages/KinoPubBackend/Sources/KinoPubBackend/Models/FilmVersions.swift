@@ -43,9 +43,21 @@ public enum FilmVersions {
     return hours > 0 ? "\(hours) ч \(minutes) мин" : "\(minutes) мин"
   }
 
+  /// From the quality class ("1080p"), not the pixel height: a letterboxed 1080p file is 1920×800.
   static func bestQuality(_ files: [FileInfo]) -> String? {
-    guard let height = files.map(\.h).max(), height > 0 else { return nil }
-    return height >= 2160 ? "4K" : "\(height)p"
+    guard let lines = files.map(qualityLines).max(), lines > 0 else { return nil }
+    return lines >= 2160 ? "4K" : "\(lines)p"
+  }
+
+  private static func qualityLines(_ file: FileInfo) -> Int {
+    if file.resolution > 0 { return file.resolution }
+    switch file.w {
+    case 3840...: return 2160
+    case 2560...: return 1440
+    case 1920...: return 1080
+    case 1280...: return 720
+    default: return file.h
+    }
   }
 
   /// Up to 3 language codes, else only their number (one version can carry 40+ subtitle tracks).
