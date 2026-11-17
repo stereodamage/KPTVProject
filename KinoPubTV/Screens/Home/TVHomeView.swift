@@ -66,5 +66,7 @@ private struct TVHomeContent: View {
     .task {
       await model.fetchData()
     }
+    // `.task` does not run again after a pop (e.g. back from the player), so reload when back on top.
+    .refreshWhenOnTop(true) { Task { await model.fetchData() } }
   }
 }
